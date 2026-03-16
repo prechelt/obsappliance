@@ -98,6 +98,6 @@ Decisions:
 
 # 4. Next development step
 
-Implement the `install_obsapp.sh` installation script according to 1.2 above.
-Postulate where the Python code is going to live.
+Implement the `install_obsapp.ps1` installation script according to 1.2 above.
+Design its internal structure along that of `install_obsapp.sh`. 
 Ask me if substantial ambiguities occur.
