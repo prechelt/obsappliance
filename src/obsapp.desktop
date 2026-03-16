@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=OBSapp
+Comment=Screen recording appliance
+Exec=__OBSAPPDIR__/venv/bin/obsapp
+Icon=__OBSAPPDIR__/obsapp/resources/obsapp-icon.svg
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;

@@ -239,6 +239,8 @@ install_obsapp_code() {
     cp "$script_dir/pyproject.toml" "$OBSAPPDIR/"
     cp "$script_dir/src/start_obs.sh" "$OBSAPPDIR/obsstudio/start_obs.sh"
     chmod +x "$OBSAPPDIR/obsstudio/start_obs.sh"
+    cp "$script_dir/src/obsapp.desktop" "$OBSAPPDIR/obsapp/"
+    cp "$script_dir/src/OBSapp.command" "$OBSAPPDIR/obsapp/"
     info "OBSapp code installed to $OBSAPPDIR/obsapp/"
 }
 
@@ -258,43 +260,23 @@ setup_venv() {
 create_desktop_icon() {
     local os="$1"
 
-    # Create a simple red dot SVG icon
-    mkdir -p "$OBSAPPDIR/obsapp/resources"
-    cat > "$OBSAPPDIR/obsapp/resources/obsapp-icon.svg" << 'SVG'
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <circle cx="32" cy="32" r="28" fill="#e63946" stroke="#b71c1c" stroke-width="3"/>
-  <circle cx="32" cy="32" r="12" fill="#b71c1c"/>
-</svg>
-SVG
+    # Template files use __OBSAPPDIR__ as placeholder, substituted here.
 
     if [ "$os" = "linux" ]; then
-        local desktop_file="$HOME/.local/share/applications/obsapp.desktop"
         mkdir -p "$HOME/.local/share/applications"
-        cat > "$desktop_file" << EOF
-[Desktop Entry]
-Name=OBSapp
-Comment=Screen recording appliance
-Exec=$OBSAPPDIR/venv/bin/obsapp
-Icon=$OBSAPPDIR/obsapp/resources/obsapp-icon.svg
-Terminal=false
-Type=Application
-Categories=AudioVideo;Video;
-EOF
+        sed "s|__OBSAPPDIR__|$OBSAPPDIR|g" "$OBSAPPDIR/obsapp/obsapp.desktop" \
+            > "$HOME/.local/share/applications/obsapp.desktop"
         # Also copy to Desktop if it exists
         if [ -d "$HOME/Desktop" ]; then
-            cp "$desktop_file" "$HOME/Desktop/obsapp.desktop"
+            cp "$HOME/.local/share/applications/obsapp.desktop" "$HOME/Desktop/obsapp.desktop"
             chmod +x "$HOME/Desktop/obsapp.desktop"
         fi
         info "Desktop icon created."
 
     elif [ "$os" = "macos" ]; then
-        # On macOS, create a simple .command launcher on the Desktop
         if [ -d "$HOME/Desktop" ]; then
-            cat > "$HOME/Desktop/OBSapp.command" << EOF
-#!/bin/bash
-exec "$OBSAPPDIR/venv/bin/obsapp"
-EOF
+            sed "s|__OBSAPPDIR__|$OBSAPPDIR|g" "$OBSAPPDIR/obsapp/OBSapp.command" \
+                > "$HOME/Desktop/OBSapp.command"
             chmod +x "$HOME/Desktop/OBSapp.command"
             info "Desktop launcher created at ~/Desktop/OBSapp.command"
         else
