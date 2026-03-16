@@ -23,13 +23,13 @@ Next uses will start at step 2 and will offer the values of step 3 as defaults.
 ### 1.2 OBSapp bootstrap
 
 1. User starts the OBSapp installer command
-2. Installer checks if a current OBS Studio is present on the machine.
-   If yes, places a starter script in the $OBSAPP_OBSDIR.
-3. If not, downloads a portable version of OBS and places it (and a starter script) in $OBSAPP_OBSDIR.
-4. Ditto for a suitable version of Python or Electron (depending on what we choose, see (3.) below)
-   into $OBSAPP_PLATFORMDIR
-5. Installer places OBSapp code into $OBSAPP_OBSAPPDIR
-6. Installer places OBSapp icon on desktop 
+2. Installer checks if a current OBS Studio (at least V30.2) is present on the machine.
+   If yes, places a starter script in the `$OBSAPPDIR/obsstudio` dir.
+3. If not, downloads a portable version of OBS and places it (and a starter script) in `$OBSAPPDIR/obsstudio`.
+4. Ditto for a suitable version of Python into `$OBSAPPDIR/python`. We require at least Python 3.10.
+5. Installer places OBSapp code into `$OBSAPPDIR/obsapp`
+6. Installer creates venv for OBSapp in `$OBSAPPDIR/venv` and installs the dependencies listed in `pyproject.toml`
+7. Installer places OBSapp icon on desktop. Find a generic free red recording dot icon for that purpose.
 
 
 ### 1.3 OBSapp use
@@ -98,3 +98,6 @@ Decisions:
 
 # 4. Next development step
 
+Implement the `install_obsapp.sh` installation script according to 1.2 above.
+Postulate where the Python code is going to live.
+Ask me if substantial ambiguities occur.
