@@ -56,9 +56,6 @@ Next uses will start at step 2 and will offer the values of step 3 as defaults.
 
 ## 3. Technology selection
 
-Discuss these issues with me: Present options and considerations, then let me pick.
-Replace the respective items in the list below with the outcomes.
-
 1. Consider if there is a sensible alternative to OBS Studio 
 2. Installation ("bootstrap") on Linux and macOS could be in the `curl someurl | bash` style.
    Is there a better way?
@@ -81,8 +78,23 @@ Replace the respective items in the list below with the outcomes.
 
 Decisions:
 
-1. ...
-2. ...
+1. **OBS Studio** — FFmpeg-only would save download size but adds substantial complexity
+   (pause/resume, hardware encoder detection, platform-specific screen enumeration).
+   OBS provides all of that out of the box. Webcam overlay is dropped from requirements.
+2. **`curl <url> | bash`** for Linux/macOS bootstrap. Standard approach for developer tools.
+3. **`irm <url> | iex`** (PowerShell) for Windows bootstrap. Same pattern, no need for an .exe installer.
+4. **Two parallel scripts** (`install.sh` + `install.ps1`) with the same logical structure.
+   Shared configuration (URLs, versions) in a small JSON file that both scripts read.
+5. **No WSL required.** OBS, Python, and PowerShell all run natively on Windows.
+6. **Python + CustomTkinter** for the GUI. Modern look, lightweight (~1 MB on top of Python),
+   matches developer's Python skills. Electron rejected as too heavyweight (~150 MB+).
+7. **No OBS scripting for the GUI.** OBS scripts run inside OBS and can't build standalone windows.
+   Use **obs-websocket** (built into OBS 28+) for all communication between GUI and OBS.
+   A small Lua script inside OBS may help with device enumeration if the websocket API falls short.
+8. **obs-websocket** for runtime control (`StartRecord`, `StopRecord`, `PauseRecord`, `ResumeRecord`,
+   `GetInputList`, etc.) via the `obsws-python` library. Device/scene configuration is written
+   as OBS scene collection JSON files placed in OBS's portable config directory before launch.
 
-Read Sections 1 and 2 for information only, then let us make the decisions for Section 3
-and, once made, record them in the list just above.
+
+# 4. Next development step
+
