@@ -12,9 +12,10 @@ $ErrorActionPreference = "Stop"
 # ── Configuration ──────────────────────────────────────────────────────────
 $OBSAPPDIR       = if ($env:OBSAPPDIR) { $env:OBSAPPDIR } else { Join-Path $HOME "obsapp" }
 $MIN_OBS_VERSION = [version]"30.2"
+$MIN_OBS_VERSION = [version]"32.0.3"  #  TODO: remove, it's for testing only
 $MIN_PYTHON_VERSION = [version]"3.10"
-$OBS_VERSION     = "30.2.3"
-$OBS_ZIP_URL     = "https://github.com/obsproject/obs-studio/releases/download/$OBS_VERSION/OBS-Studio-${OBS_VERSION}-Windows.zip"
+$OBS_VERSION     = "32.1.0"
+# OBS_ZIP_URL is built dynamically in Install-ObsPortable (needs arch)
 $PYTHON_VERSION  = "3.12.8"
 $REPO_URL        = "https://github.com/prechelt/obsappliance"
 
@@ -28,11 +29,22 @@ function Test-VersionGe([version]$actual, [version]$minimum) {
     return $actual -ge $minimum
 }
 
+function Download-File($url, $outFile) {
+    # curl.exe (ships with Windows 10+) shows a progress bar natively
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curl) {
+        & curl.exe -fSL --progress-bar -o $outFile $url
+        if ($LASTEXITCODE -ne 0) { Die "Download failed: $url" }
+    } else {
+        Invoke-WebRequest -Uri $url -OutFile $outFile -UseBasicParsing
+    }
+}
+
 function Get-Arch {
-    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+    $arch = $env:PROCESSOR_ARCHITECTURE
     switch ($arch) {
-        "X64"   { return "x86_64" }
-        "Arm64" { return "aarch64" }
+        "AMD64" { return "x86_64" }
+        "ARM64" { return "aarch64" }
         default { Die "Unsupported architecture: $arch" }
     }
 }
@@ -65,13 +77,19 @@ function Get-ObsVersion {
 }
 
 function Install-ObsPortable {
+    $arch = Get-Arch
+    $obsPlatform = switch ($arch) {
+        "x86_64"  { "x64" }
+        "aarch64" { "arm64" }
+    }
+    $OBS_ZIP_URL = "https://github.com/obsproject/obs-studio/releases/download/$OBS_VERSION/OBS-Studio-${OBS_VERSION}-Windows-${obsPlatform}.zip"
     Info "Downloading OBS Studio $OBS_VERSION portable..."
     Info "  URL: $OBS_ZIP_URL"
 
     $tmpZip = Join-Path $env:TEMP "obs-studio-portable.zip"
     $tmpDir = Join-Path $env:TEMP "obs-studio-extract"
 
-    Invoke-WebRequest -Uri $OBS_ZIP_URL -OutFile $tmpZip -UseBasicParsing
+    Download-File $OBS_ZIP_URL $tmpZip
 
     Info "Extracting OBS Studio to $OBSAPPDIR\obsstudio..."
     if (Test-Path $tmpDir) { Remove-Item $tmpDir -Recurse -Force }
@@ -90,7 +108,7 @@ function Install-ObsPortable {
 
     $obsExe = Join-Path $obsTarget "bin\64bit\obs64.exe"
     if (-not (Test-Path $obsExe)) {
-        Die "OBS extraction failed — $obsExe not found."
+        Die "OBS extraction failed - $obsExe not found."
     }
     Info "OBS Studio portable installed at $obsTarget"
 }
@@ -108,7 +126,7 @@ function Setup-Obs {
         Info "Will download OBS Studio $OBS_VERSION portable (no admin rights needed)."
         $answer = Read-Host "Download and install OBS Studio portable? [y/N]"
         if ($answer -notmatch '^[yY]') {
-            Die "OBS Studio >= $MIN_OBS_VERSION is required. Please install it manually and re-run."
+            Die "OBS Studio `>= $MIN_OBS_VERSION is required. Please install it manually and re-run."
         }
         Install-ObsPortable
     }
@@ -150,19 +168,19 @@ function Install-Python {
     Info "  URL: $url"
 
     $tmpInstaller = Join-Path $env:TEMP "python-$PYTHON_VERSION-installer.exe"
-    Invoke-WebRequest -Uri $url -OutFile $tmpInstaller -UseBasicParsing
+    Download-File $url $tmpInstaller
 
     $pythonTarget = Join-Path $OBSAPPDIR "python"
     Info "Installing Python to $pythonTarget (silent, no admin required)..."
-    & $tmpInstaller /quiet InstallAllUsers=0 TargetDir=$pythonTarget `
-        Include_launcher=0 Include_test=0 Include_doc=0 `
-        AssociateFiles=0 Shortcuts=0 Include_tcltk=0
+    Start-Process -FilePath $tmpInstaller -ArgumentList `
+        "/quiet InstallAllUsers=0 TargetDir=$pythonTarget Include_launcher=0 Include_test=0 Include_doc=0 AssociateFiles=0 Shortcuts=0 Include_tcltk=0" `
+        -Wait -NoNewWindow
 
     Remove-Item $tmpInstaller -Force -ErrorAction SilentlyContinue
 
     $pyExe = Join-Path $pythonTarget "python.exe"
     if (-not (Test-Path $pyExe)) {
-        Die "Python installation failed — $pyExe not found."
+        Die "Python installation failed - $pyExe not found."
     }
     Info "Python installed at $pythonTarget"
 }
@@ -194,7 +212,7 @@ function Install-ObsappCode {
 
         $zipUrl = "$REPO_URL/archive/refs/heads/main.zip"
         $tmpZip = Join-Path $env:TEMP "obsappliance.zip"
-        Invoke-WebRequest -Uri $zipUrl -OutFile $tmpZip -UseBasicParsing
+        Download-File $zipUrl $tmpZip
         Expand-Archive -Path $tmpZip -DestinationPath $tmpDir -Force
         Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
         $scriptDir = Join-Path $tmpDir "obsappliance-main"
@@ -211,13 +229,19 @@ function Install-ObsappCode {
 # ── Step 4: Create venv and install dependencies ───────────────────────────
 function Setup-Venv {
     $venvDir = Join-Path $OBSAPPDIR "venv"
+    $venvPython = Join-Path $venvDir "Scripts\python.exe"
+
     Info "Creating virtual environment at $venvDir..."
     & $script:PythonCmd -m venv $venvDir
+    if ($LASTEXITCODE -ne 0) { Die "Failed to create virtual environment." }
 
-    $pip = Join-Path $venvDir "Scripts\pip.exe"
+    Info "Upgrading pip..."
+    & $venvPython -m pip install --upgrade pip --quiet
+    if ($LASTEXITCODE -ne 0) { Die "Failed to upgrade pip." }
+
     Info "Installing dependencies from pyproject.toml..."
-    & $pip install --upgrade pip --quiet
-    & $pip install $OBSAPPDIR --quiet
+    & $venvPython -m pip install $OBSAPPDIR --quiet
+    if ($LASTEXITCODE -ne 0) { Die "Failed to install dependencies." }
 
     Info "Dependencies installed."
 }
