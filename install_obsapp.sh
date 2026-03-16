@@ -247,11 +247,13 @@ install_obsapp_code() {
 # ── Step 4: Create venv and install dependencies ───────────────────────────
 setup_venv() {
     info "Creating virtual environment at $OBSAPPDIR/venv..."
-    "$PYTHON_CMD" -m venv "$OBSAPPDIR/venv"
+    "$PYTHON_CMD" -m venv "$OBSAPPDIR/venv" || die "Failed to create virtual environment."
+
+    info "Upgrading pip..."
+    "$OBSAPPDIR/venv/bin/python" -m pip install --upgrade pip --quiet || die "Failed to upgrade pip."
 
     info "Installing dependencies from pyproject.toml..."
-    "$OBSAPPDIR/venv/bin/pip" install --upgrade pip --quiet
-    "$OBSAPPDIR/venv/bin/pip" install "$OBSAPPDIR" --quiet
+    "$OBSAPPDIR/venv/bin/python" -m pip install "$OBSAPPDIR" --quiet || die "Failed to install dependencies."
 
     info "Dependencies installed."
 }
