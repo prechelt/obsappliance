@@ -34,7 +34,62 @@ Next uses will start at step 2 and will offer the values of step 3 as defaults.
 
 ### 1.3 OBSapp use
 
-(to be added later)
+1. OBSapp starts and presents the main GUI with a pulldown menu with these entries:
+   "Record...", "Concatenate videos...", "Censor video...", "Upload video...", "Exit".
+   All subdialogs return to the main GUI when done.
+   Subdialogs appear in the same window (which changes its size), not additional ones.
+2. User chooses "Record...", "Concatenate videos...", "Censor video...", "Upload video...", "Exit"
+   and gets sent to variants 2a, 2b, 2c, 2d, 2e, respectively.
+
+Variants:
+
+**2a. User chooses "Record...":**
+2a1. OBSapp presents a GUI dialog with 5 five rows as follows:
+   - "Which screen to record:" pulldown menu of available screens
+   - "Which microphone to record:" pulldown menu of available mics (or "<no audio>")
+   - "Which webcam to record:" pulldown menu of available webcams (or "<no webcam>")
+   - "Target MP4 file:"  text field with button to get a file selector dialog
+   - Buttons "Record", "Cancel"
+2a2. User fills in dialog, then selects "Record"
+2a3. OBSapp persists the dialog entries in a json file to offer them as defaults in the next run.
+2a4. OBSapp starts OBS, tells it the config, starts recording, and shows the recording GUI:
+   a small windows with only two buttons: "Pause/Unpause" and "Stop".
+2a5. "Pause/Unpause" pauses or unpauses the OBS recording
+2a6. "Stop" pauses, asks for confirmation, and then stops or unpauses. 
+
+**2b. User chooses "Censor video...":**
+2b1. OBSapp offers a dialog with explanation at top, 
+     MP4 file name text field and file chooser botton below,
+     and a 5-line text area 
+     in between into which the user can enter time ranges, one per line,
+     e.g. "0:57-1:02", which means that 5 seconds (from 57.0 seconds into the video until 62.0 seconds)
+     will be cut out of the video and be replaced by a 1-second-long generated white frame with large black
+     text saying "0:57-1:02 deleted". Likewise for any timerange.
+     "OK", "Cancel" buttons at bottom.
+     (Perform these replacements in reverse-sorted order back-to-front instead of transforming the timeranges)
+2b2. User chooses "OK"
+2b3. OBSapp rewrites the given file xyz.mp4 into a new one xyz-censored.mp4 which is like the original,
+     except that each censored timerange gets removed and replaced by the respective info frame.
+2b4. OBSapp returns to main GUI. ("Cancel" does the same without doing 2b3.)
+
+**2c. User chooses "Concatenate videos...":**
+2c1. OBSapp presents a dialog with explanation, a 5-line text area (for one file path per line),
+   a text field labeled "Next input file:" with file selector button,
+   a text field labeled "Output file:" with file selector button,
+   buttons "Add file", "DONE", "Cancel".
+2c2. User enters a valid filepath for next input file and clicks "Add file"
+2c3. OBSapp adds the filepath at the bottom of the list in the text area. (Repeat 2c2+2c3 ad libitum.)
+2c4. User enters "DONE"
+2c5. OBSapp writes a concatenated video of the given video files to the output file.
+     Before each part, it puts a 1-second white frame with large black text stating the file name (not path)
+     of the next part to come.
+
+**2d. User chooses "Upload video...":**
+((details will be added later))
+
+**2e. User chooses "Exit"**
+2e1. OBSapp terminates
+
 
 
 ## 2. Non-functional requirements
@@ -50,8 +105,6 @@ Next uses will start at step 2 and will offer the values of step 3 as defaults.
 - Distribution is via the GitHub repo or perhaps a GitHub release
 - The entire installation should be a single file tree in $HOME and should be readily movable
   (i.e. use only relative paths internally).
-  I imagine the tree to be something like this: 
-  ~/obsapp/obsstudio/**, ~/obsapp/python/**, ~/obsapp/obsapp/**, ~/obsapp/config/*.   
 
 
 ## 3. Technology selection
