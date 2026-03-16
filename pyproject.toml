@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "obsapp"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "customtkinter>=5.2",
+    "obsws-python>=1.7",
+]
+
+[project.scripts]
+obsapp = "obsapp.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
