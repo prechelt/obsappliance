@@ -151,6 +151,5 @@ Decisions:
 
 # 4. Next development step
 
-Implement the `install_obsapp.ps1` installation script according to 1.2 above.
-Design its internal structure along that of `install_obsapp.sh`. 
-Ask me if substantial ambiguities occur.
+Review the use cases in Section 1.3.
+Can you spot ambiguities (relevant holes or inconsistencies) in the described behavior?
