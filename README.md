@@ -34,61 +34,72 @@ Next uses will start at step 2 and will offer the values of step 3 as defaults.
 
 ### 1.3 OBSapp use
 
-1. OBSapp starts and presents the main GUI with a pulldown menu with these entries:
+General GUI rules:
+- All windows have ~2 em padding on all sides.
+- OBS is started lazily (on first need) and shut down when OBSapp exits (or crashes).
+
+1. OBSapp starts and presents the main GUI: an explanation text ("((explanation here))" for now)
+   above a pulldown menu with entries:
    "Record...", "Concatenate videos...", "Censor video...", "Upload video...", "Exit".
-   All subdialogs return to the main GUI when done.
-   Subdialogs appear in the same window (which changes its size), not additional ones.
-2. User chooses "Record...", "Concatenate videos...", "Censor video...", "Upload video...", "Exit"
-   and gets sent to variants 2a, 2b, 2c, 2d, 2e, respectively.
+   All subdialogs appear in the same window (which changes its size) and return to the main GUI when done.
+2. User chooses an entry and gets sent to variant 2a, 2b, 2c, 2d, or 2e respectively.
 
 Variants:
 
 **2a. User chooses "Record...":**
-2a1. OBSapp presents a GUI dialog with 5 five rows as follows:
-   - "Which screen to record:" pulldown menu of available screens
-   - "Which microphone to record:" pulldown menu of available mics (or "<no audio>")
-   - "Which webcam to record:" pulldown menu of available webcams (or "<no webcam>")
-   - "Target MP4 file:"  text field with button to get a file selector dialog
+2a1. OBSapp presents a dialog with four rows and buttons:
+   - "Which screen to record:" pulldown of available screens
+   - "Which microphone to record:" pulldown of available mics (or "\<no audio\>")
+   - "Which webcam to record:" pulldown of available webcams (or "\<no webcam\>")
+   - "Target MP4 file:" text field (initially empty) + file-selector button.
+     If the chosen file already exists, warn; "OK" overwrites, "Cancel" returns to this dialog.
    - Buttons "Record", "Cancel"
-2a2. User fills in dialog, then selects "Record"
-2a3. OBSapp persists the dialog entries in a json file to offer them as defaults in the next run.
-2a4. OBSapp starts OBS, tells it the config, starts recording, and shows the recording GUI:
-   a small windows with only two buttons: "Pause/Unpause" and "Stop".
-2a5. "Pause/Unpause" pauses or unpauses the OBS recording
-2a6. "Stop" pauses, asks for confirmation, and then stops or unpauses. 
+2a2. User fills in dialog, then selects "Record".
+2a3. OBSapp persists the dialog entries in a JSON file to offer them as defaults in the next run.
+2a4. OBSapp starts OBS (if not already running), applies the config, starts recording,
+   and shows the recording GUI: a small window with two buttons: "Pause" and "Stop".
+2a5. "Pause" pauses recording; button label changes to "Resume". "Resume" resumes; label changes back.
+2a6. "Stop" pauses, asks for confirmation.
+   On confirm: stops recording, returns to main GUI.
+   On cancel: unpauses recording, returns to recording GUI.
 
 **2b. User chooses "Censor video...":**
-2b1. OBSapp offers a dialog with explanation at top, 
-     MP4 file name text field and file chooser botton below,
-     and a 5-line text area 
-     in between into which the user can enter time ranges, one per line,
-     e.g. "0:57-1:02", which means that 5 seconds (from 57.0 seconds into the video until 62.0 seconds)
-     will be cut out of the video and be replaced by a 1-second-long generated white frame with large black
-     text saying "0:57-1:02 deleted". Likewise for any timerange.
-     "OK", "Cancel" buttons at bottom.
-     (Perform these replacements in reverse-sorted order back-to-front instead of transforming the timeranges)
-2b2. User chooses "OK"
-2b3. OBSapp rewrites the given file xyz.mp4 into a new one xyz-censored.mp4 which is like the original,
-     except that each censored timerange gets removed and replaced by the respective info frame.
-2b4. OBSapp returns to main GUI. ("Cancel" does the same without doing 2b3.)
+2b1. OBSapp shows a dialog with:
+     - Explanation text at top.
+     - MP4 file name text field + file-chooser button.
+     - A scrollable text area (initially ~5 lines tall) for time ranges, one per line.
+       Format: `M:SS-M:SS` or `H:MM:SS-H:MM:SS` (whole seconds only).
+       Example: "0:57-1:02" means seconds 57–62 will be cut and replaced by a 1-second white frame
+       with large black text "0:57-1:02 deleted". The output video is shorter than the input.
+     - Buttons "OK", "Cancel".
+     On "OK": validate ranges (no overlaps, within video duration, valid format).
+     If invalid, show a message window listing the problems with an "OK" button; return to this dialog.
+     (Perform replacements in reverse-sorted order back-to-front.)
+2b2. OBSapp rewrites xyz.mp4 into xyz-censored.mp4 with each censored range removed
+     and replaced by its info frame.
+2b3. Returns to main GUI. ("Cancel" returns without rewriting.)
 
 **2c. User chooses "Concatenate videos...":**
-2c1. OBSapp presents a dialog with explanation, a 5-line text area (for one file path per line),
-   a text field labeled "Next input file:" with file selector button,
-   a text field labeled "Output file:" with file selector button,
-   buttons "Add file", "DONE", "Cancel".
-2c2. User enters a valid filepath for next input file and clicks "Add file"
-2c3. OBSapp adds the filepath at the bottom of the list in the text area. (Repeat 2c2+2c3 ad libitum.)
-2c4. User enters "DONE"
-2c5. OBSapp writes a concatenated video of the given video files to the output file.
-     Before each part, it puts a 1-second white frame with large black text stating the file name (not path)
-     of the next part to come.
+2c1. OBSapp presents a dialog with:
+   - Explanation text at top.
+   - A scrollable text area (initially ~5 lines tall) showing the file list, one path per line.
+   - "Next input file:" text field + file-selector button.
+   - "Output file:" text field + file-selector button.
+   - Buttons "Add file", "DONE", "Cancel".
+2c2. User enters a filepath and clicks "Add file"; OBSapp appends it to the list. Repeat ad libitum.
+2c3. User clicks "DONE".
+2c4. OBSapp validates that all input files exist and are compatible (same resolution, codec, frame rate).
+   If not, show a message window listing the problems with an "OK" button; return to this dialog.
+2c5. OBSapp writes the concatenated video to the output file.
+     Before each part (including the first), it inserts a 1-second white frame with large black text
+     stating the file name (not path) of the upcoming part.
+2c6. Returns to main GUI. ("Cancel" discards the list and returns without concatenating.)
 
 **2d. User chooses "Upload video...":**
-((details will be added later))
+Shows a message window saying "Not implemented yet" with an "OK" button. Returns to main GUI.
 
-**2e. User chooses "Exit"**
-2e1. OBSapp terminates
+**2e. User chooses "Exit":**
+OBSapp shuts down OBS (if running) and terminates.
 
 
 
@@ -151,5 +162,10 @@ Decisions:
 
 # 4. Next development step
 
-Review the use cases in Section 1.3.
-Can you spot ambiguities (relevant holes or inconsistencies) in the described behavior?
+Make two or three suggestions how to structure the functionality of 1.3 into several Python modules
+of medium size such as to separate concerns well (e.g. GUI mechanics, OBS technicalities, input checks,
+workflow logic, etc. Do not feel bound to exactly these.). 
+Provide pro/con arguments. Let me decide.
+Can OBS perform the concatenation and censoring (with text frame insertion) for us or
+do we need additional software for that?
+Document the outcome in a new Section "4. Architecture". 
