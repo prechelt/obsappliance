@@ -160,12 +160,45 @@ Decisions:
    as OBS scene collection JSON files placed in OBS's portable config directory before launch.
 
 
-# 4. Next development step
+## 4. Architecture
 
-Make two or three suggestions how to structure the functionality of 1.3 into several Python modules
-of medium size such as to separate concerns well (e.g. GUI mechanics, OBS technicalities, input checks,
-workflow logic, etc. Do not feel bound to exactly these.). 
-Provide pro/con arguments. Let me decide.
-Can OBS perform the concatenation and censoring (with text frame insertion) for us or
-do we need additional software for that?
-Document the outcome in a new Section "4. Architecture". 
+### 4.1 Video processing
+
+OBS is a recording/streaming engine, not a video editor.
+Concatenation and censoring (cutting segments, generating text frames, reassembling)
+require **FFmpeg**. OBS bundles an FFmpeg binary on all platforms;
+we use that and fall back to a separate FFmpeg download if needed.
+
+### 4.2 Module structure
+
+```
+obsapp/
+  main.py                — entry point, app lifecycle
+  gui/
+    __init__.py
+    main_menu.py         — main menu screen
+    record_dialog.py     — record config dialog + recording controls (Pause/Resume, Stop)
+    censor_dialog.py     — censor dialog
+    concat_dialog.py     — concatenate dialog
+    widgets.py           — shared GUI helpers (message boxes, file choosers, validation display)
+  obs_control.py         — OBS process lifecycle, websocket connection, record/pause/stop commands
+  video_ops.py           — FFmpeg operations: censor, concatenate, text-frame generation
+  config.py              — JSON persistence of user settings (defaults for record dialog)
+```
+
+### 4.3 Dependencies between modules
+
+```
+main.py → gui/*          (drives the GUI)
+gui/*   → obs_control    (record_dialog calls start/pause/stop)
+gui/*   → video_ops      (censor_dialog, concat_dialog call FFmpeg operations)
+gui/*   → config         (record_dialog reads/writes defaults)
+gui/*   → widgets        (all dialogs use shared helpers)
+```
+
+`obs_control`, `video_ops`, and `config` do not depend on each other or on `gui`.
+
+
+# 5. Next development step
+
+Implement functionality 2a ("Record") from Section 1.3.
