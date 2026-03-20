@@ -2,20 +2,21 @@
 
 A few-click appliance to easily screen-record your desktop work locally with Open Broadcaster Software (OBS).
 
+Still in early development and not ready for use.
+
 ## 1. Use cases
 
 
 ### 1.1 Overview
 
-1. User activates OBSapp bootstrap
+1. User activates OBSapp bootstrap for installation
 2. User starts OBSapp
 3. Config: User selects Monitor, Microphone (or none), Webcam (or none), target directory
 4. OBSapp starts recording
 5. User can pause/unpause the recording multiple times
 6. User stops recording
 7. OBSapp writes video file to target directory
-8. OBSapp offers censoring parts of the video
-9. OBSapp offers uploading the video
+8. OBSapp menu also offers censoring parts of the video or uploading the video
 
 Next uses will start at step 2 and will offer the values of step 3 as defaults.
 
@@ -201,4 +202,7 @@ gui/*   → widgets        (all dialogs use shared helpers)
 
 # 5. Next development step
 
-Implement functionality 2a ("Record") from Section 1.3.
+Functionality 2a ("Record") is implemented.
+Use the OBS indicated in the .ini file.
+Test recording on a desktop system (Linux, Windows, or macOS) with OBS Studio installed.
+Then implement 2b ("Censor video") and 2c ("Concatenate videos").
