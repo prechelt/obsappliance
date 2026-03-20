@@ -1,18 +1,18 @@
 [build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta"
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
 
-[project]
+[tool.poetry]
 name = "obsapp"
 version = "0.1.0"
-requires-python = ">=3.10"
-dependencies = [
-    "customtkinter>=5.2",
-    "obsws-python>=1.7",
+packages = [
+    {include = "obsapp", from = "src"}
 ]
 
-[project.scripts]
-obsapp = "obsapp.main:main"
+[tool.poetry.dependencies]
+python = ">=3.10"
+customtkinter = ">=5.2"
+obsws-python = ">=1.7"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.poetry.scripts]
+obsapp = "obsapp.main:main"
