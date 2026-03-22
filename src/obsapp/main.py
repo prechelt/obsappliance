@@ -5,6 +5,7 @@ Entry point: obsapp.main:main  (see pyproject.toml [project.scripts]).
 
 import atexit
 import configparser
+import os
 import sys
 from pathlib import Path
 
@@ -32,14 +33,13 @@ def _read_config(inifile: str) -> dict:
 
 
 class App(ctk.CTk):
-    def __init__(self, obsstudio_dir: str) -> None:
+    def __init__(self, cfg: dict) -> None:
         super().__init__()
         self.title("OBSapp")
-        self.obsstudio_dir = Path(obsstudio_dir)
+        self.obsstudio_dir = Path(cfg["obsstudio_dir"])
 
-        obsappdir = self.obsstudio_dir
-        self.obs = OBSController(obsappdir)
-        self.config_store = ConfigStore(obsappdir / "obsapp_settings.json")
+        self.obs = OBSController(self.obsstudio_dir)
+        self.config_store = ConfigStore(Path("obsapp_settings.json"))
 
         self._current_frame: ctk.CTkFrame | None = None
 
@@ -102,9 +102,10 @@ def main() -> None:
     cfg = _read_config(sys.argv[1])
     if "obsstudio_dir" not in cfg:
         sys.exit("Error: 'obsstudio_dir' entry missing from the .ini file.")
+    os.chdir(Path(sys.argv[1]).resolve().parent)
     ctk.set_appearance_mode("system")
     ctk.set_default_color_theme("blue")
-    app = App(obsstudio_dir=cfg["obsstudio_dir"])
+    app = App(cfg=cfg)
     app.mainloop()
 
 

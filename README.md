@@ -199,8 +199,30 @@ gui/*   → widgets        (all dialogs use shared helpers)
 
 `obs_control`, `video_ops`, and `config` do not depend on each other or on `gui`.
 
+### 4.4 Configuration
 
-# 5. Next development step
+`main.py` is called with a single argument, an `.ini` config file.
+Its directory is the obsapp directory.
+The OBS config file that obsapp creates dynamically will live in it.
+Python, the Python venv, and OBS Studio may live in that directory or elsewhere.
+Here is an example how it may look in an installed version of obsapp:
+```ini
+[obsappliance]
+obsstudio_dir=./obsstudio
+venv_dir=./venv
+```
+When obsapp starts, it immediately changes into the obsapp directory, so that the config file
+can use relative paths, so that the obsapp directory can be relocated easily.
+
+Here is a variant for a development setup on Windows where both parts are in a standard place:
+```ini
+[obsappliance]
+obsstudio_dir=C:\Program Files\obs-studio
+venv_dir=c:\venv\obsapp
+```
+
+
+## 5. Next development step
 
 Functionality 2a ("Record") is implemented.
 Use the OBS indicated in the .ini file.
