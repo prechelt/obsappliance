@@ -1,9 +1,17 @@
 """Main menu screen."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import customtkinter as ctk
+
 from .widgets import PADDING, MarkupLabel, show_message
 
-mainmenu_explanation="""
+if TYPE_CHECKING:
+    from ..main import App
+
+MAINMENU_EXPLANATION = """
 This small Python app uses OBS Studio and FFMpeg internally.
 
 **1.** It allows you to **record your desktop work** on one entire monitor.
@@ -19,13 +27,13 @@ you can **concatenate** these recordings into one. Just list the files in the ri
 """
 
 class MainMenuFrame(ctk.CTkFrame):
-    def __init__(self, parent, app):
+    def __init__(self, parent: ctk.CTkFrame, app: App) -> None:
         super().__init__(parent, fg_color="transparent")
         self.app = app
 
         self._explanation_label = MarkupLabel(
             self,
-            markup_text=mainmenu_explanation,
+            markup_text=MAINMENU_EXPLANATION,
         )
         self._explanation_label.pack(padx=PADDING, pady=(PADDING, 10), fill="x")
 
@@ -52,7 +60,8 @@ class MainMenuFrame(ctk.CTkFrame):
         # pixels (it multiplies by the window scaling factor internally).
         scaling = self.app._get_window_scaling()
         min_w = int(longest_screen_px / scaling) + 2 * PADDING
-        self.app.minsize(min_w, 0)
+        min_h = self.app.winfo_reqheight()
+        self.app.minsize(min_w, min_h)
 
     def _on_action(self, choice: str) -> None:
         self._action_var.set("Select action...")  # reset for next time

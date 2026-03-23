@@ -1,18 +1,24 @@
 """Record configuration dialog and recording controls (Pause/Resume, Stop)."""
 
+from __future__ import annotations
+
 import datetime
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import customtkinter as ctk
 
 from .widgets import PADDING, ask_confirmation, choose_save_file, show_message
 
+if TYPE_CHECKING:
+    from ..main import App
+
 
 class RecordDialogFrame(ctk.CTkFrame):
     """Config dialog shown before recording starts (use-case 2a1)."""
 
-    def __init__(self, parent, app):
+    def __init__(self, parent: ctk.CTkFrame, app: App) -> None:
         super().__init__(parent, fg_color="transparent")
         self.app = app
 
@@ -100,8 +106,10 @@ class RecordDialogFrame(ctk.CTkFrame):
     def _set_min_width_for_entry(self) -> None:
         """Set window minsize so the target-file entry displays 60 characters."""
         from tkinter.font import Font
-        tk_entry = self._file_entry._entry  # underlying tk.Entry widget
-        font = Font(font=tk_entry.cget("font"))
+        # Derive the entry font from CTk's configured default (same family/size
+        # as every CTk widget) without touching any private CTk internals.
+        _ctk_font = ctk.CTkFont()
+        font = Font(family=_ctk_font.actual("family"), size=_ctk_font.cget("size"))
         # font.measure() returns screen pixels; CTk minsize() takes logical
         # pixels (it multiplies by the window scaling factor internally).
         scaling = self.app._get_window_scaling()
@@ -111,7 +119,8 @@ class RecordDialogFrame(ctk.CTkFrame):
         browse_w = 80
         browse_padx = 5
         min_w = entry_target_w + browse_w + browse_padx + 2 * PADDING
-        self.app.minsize(min_w, 0)
+        min_h = self.app.winfo_reqheight()
+        self.app.minsize(min_w, min_h)
 
     def _browse(self) -> None:
         path = choose_save_file(self)
@@ -165,7 +174,7 @@ class RecordDialogFrame(ctk.CTkFrame):
 class RecordingFrame(ctk.CTkFrame):
     """Small recording-control window: Pause/Resume + Stop (2a4–2a6)."""
 
-    def __init__(self, parent, app, target_path: Path):
+    def __init__(self, parent: ctk.CTkFrame, app: App, target_path: Path) -> None:
         super().__init__(parent, fg_color="transparent")
         self.app = app
         self.target_path = target_path

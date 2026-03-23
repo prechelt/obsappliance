@@ -51,7 +51,7 @@ class MarkupLabel(tk.Text):
     argument accepts the raw string including ** and _ markers.
     """
 
-    def __init__(self, parent, markup_text: str, **kwargs):
+    def __init__(self, parent: tk.Widget, markup_text: str, **kwargs):
         # Pull out any geometry kwargs; pass the rest to tk.Text.
         kwargs.setdefault("relief", "flat")
         kwargs.setdefault("borderwidth", 0)
