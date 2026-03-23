@@ -1,6 +1,7 @@
 """OBS Studio process lifecycle and websocket control."""
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -9,10 +10,20 @@ from pathlib import Path
 
 import obsws_python as obsws
 
+# obsws_python logs every error before raising it, which duplicates information
+# already present in the raised exception.  Silence it globally.
+logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
+
+from .os_specifics import (
+    _enum_monitors_win32, _enum_mics_win32, _enum_webcams_win32,
+    _enum_monitors_linux, _enum_mics_linux,
+    _enum_monitors_darwin, _enum_mics_darwin,
+)
+
 # Platform-specific source types and the property name that lists available devices.
 _SOURCE_TYPES = {
     "win32": {
-        "monitor": ("monitor_capture", "monitor"),
+        "monitor": ("monitor_capture", "monitor_id"),
         "mic": ("wasapi_input_capture", "device_id"),
         "webcam": ("dshow_input", "video_device_id"),
     },
@@ -35,7 +46,8 @@ _WS_PORT = 4455
 class OBSController:
     def __init__(self, obsappdir: Path):
         self.obsappdir = obsappdir
-        self.obs_dir = obsappdir / "obsstudio"
+        self.obs_dir = obsappdir  # kept for callers; obsappdir IS the obs dir
+        self._obs_exe: str | None = None
         self._process: subprocess.Popen | None = None
         self.ws: obsws.ReqClient | None = None
         self._platform = "linux" if sys.platform.startswith("linux") else sys.platform
@@ -52,18 +64,20 @@ class OBSController:
         """Start OBS (if needed) and connect the websocket."""
         if self.ws is not None:
             return
-        self._ensure_obs_config()
         obs_exe = self._find_obs_executable()
-        self.obs_dir.mkdir(parents=True, exist_ok=True)
+        self._ensure_obs_config()
         self._process = subprocess.Popen(
-            [obs_exe, "--portable", "--minimize-to-tray",
+            [obs_exe, "--minimize-to-tray",
              "--collection", "OBSapp", "--profile", "OBSapp"],
-            cwd=str(self.obs_dir),
+            cwd=str(Path(obs_exe).parent),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        # Wait for websocket to become available.
         for _ in range(30):
+            if self._process.poll() is not None:
+                raise ConnectionError(
+                    f"OBS process exited unexpectedly (code {self._process.returncode})"
+                )
             try:
                 self.ws = obsws.ReqClient(
                     host="localhost", port=_WS_PORT, password="", timeout=3,
@@ -74,30 +88,102 @@ class OBSController:
         raise ConnectionError("Could not connect to OBS websocket after 30 s")
 
     def stop(self) -> None:
-        """Shut down OBS."""
+        """Shut down OBS cleanly, falling back to terminate() if needed."""
+        # Close the websocket first.
         if self.ws is not None:
             try:
-                self.ws = None          # closes on garbage collection
+                self.ws.disconnect()
             except Exception:
                 pass
-        if self._process is not None:
-            self._process.terminate()
-            try:
-                self._process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self._process.kill()
-            self._process = None
+            self.ws = None
 
-    # ── device enumeration ────────────────────────────────────────────
+        if self._process is None:
+            return
+
+        # Ask OBS to exit gracefully via WM_CLOSE so it writes its clean-exit
+        # flag and doesn't show the crash-recovery dialog on next launch.
+        if self._platform == "win32":
+            self._close_windows_gracefully()
+        else:
+            self._process.terminate()
+
+        try:
+            self._process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self._process.kill()
+            self._process.wait()
+        self._process = None
+
+    def _close_windows_gracefully(self) -> None:
+        """Send WM_CLOSE to the main OBS window to trigger a clean shutdown.
+
+        Only the primary OBS window (title starts with "OBS") is targeted.
+        Sending WM_CLOSE to auxiliary windows (DirectShow, IME, tray helpers,
+        etc.) can interrupt OBS's shutdown sequence before it removes its
+        sentinel file, which causes the crash-recovery dialog on next launch.
+        """
+        import ctypes
+        import ctypes.wintypes as wt
+
+        WM_CLOSE = 0x0010
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wt.HWND, wt.LPARAM)
+        GetWindowThreadProcessId = ctypes.windll.user32.GetWindowThreadProcessId
+        GetWindowTextW = ctypes.windll.user32.GetWindowTextW
+        PostMessage = ctypes.windll.user32.PostMessageW
+
+        pid = self._process.pid
+        main_windows = []
+
+        def callback(hwnd, _):
+            proc_id = wt.DWORD()
+            GetWindowThreadProcessId(hwnd, ctypes.byref(proc_id))
+            if proc_id.value == pid:
+                buf = ctypes.create_unicode_buffer(256)
+                GetWindowTextW(hwnd, buf, 256)
+                if buf.value.startswith("OBS"):
+                    main_windows.append(hwnd)
+            return True
+
+        ctypes.windll.user32.EnumWindows(WNDENUMPROC(callback), 0)
+        for hwnd in main_windows:
+            PostMessage(hwnd, WM_CLOSE, 0, 0)
+
+    # ── device enumeration (native OS, no OBS involvement) ───────────
 
     def get_monitors(self) -> list[tuple[str, str]]:
-        return self._enumerate_devices("monitor")
+        """Return [(display_name, value), ...] using native OS APIs."""
+        try:
+            if self._platform == "win32":
+                return _enum_monitors_win32()
+            if self._platform == "darwin":
+                return _enum_monitors_darwin()
+            return _enum_monitors_linux()
+        except Exception as exc:
+            print(f"Monitor enumeration failed: {exc}")
+            return []
 
     def get_microphones(self) -> list[tuple[str, str]]:
-        return self._enumerate_devices("mic")
+        """Return [(friendly_name, device_id), ...] using native OS APIs."""
+        try:
+            if self._platform == "win32":
+                return _enum_mics_win32()
+            if self._platform == "darwin":
+                return _enum_mics_darwin()
+            return _enum_mics_linux()
+        except Exception as exc:
+            print(f"Microphone enumeration failed: {exc}")
+            return []
 
     def get_webcams(self) -> list[tuple[str, str]]:
-        return self._enumerate_devices("webcam")
+        """Return [(friendly_name, device_id), ...] using native OS APIs."""
+        try:
+            if self._platform == "win32":
+                return _enum_webcams_win32()
+            # Linux and macOS webcam enumeration not yet implemented.
+            return []
+        except Exception as exc:
+            print(f"Webcam enumeration failed: {exc}")
+            return []
 
     # ── recording control ─────────────────────────────────────────────
 
@@ -105,48 +191,51 @@ class OBSController:
         self,
         monitor_value: str,
         mic_value: str | None,
+        webcam_value: str | None,
         output_dir: str,
     ) -> None:
         """Configure OBS scene and sources for the upcoming recording."""
         assert self.ws is not None
         # Set output directory.
         self.ws.set_profile_parameter(
-            parameter_category="SimpleOutput",
-            parameter_name="FilePath",
-            parameter_value=output_dir,
+            category="SimpleOutput",
+            name="FilePath",
+            value=output_dir,
         )
         # Ensure our scene exists and is active.
-        try:
-            self.ws.create_scene(scene_name=_SCENE_NAME)
-        except Exception:
-            pass  # already exists
-        self.ws.set_current_program_scene(scene_name=_SCENE_NAME)
+        self._create_scene_if_missing(_SCENE_NAME)
+        self.ws.set_current_program_scene(_SCENE_NAME)
         # Remove old sources so we start clean.
-        for name in ("OBSapp_Monitor", "OBSapp_Mic"):
+        for name in ("OBSapp_Monitor", "OBSapp_Mic", "OBSapp_Webcam"):
             try:
-                self.ws.remove_input(input_name=name)
+                self.ws.remove_input(name)
             except Exception:
                 pass
         # Add monitor capture.
         types = _SOURCE_TYPES[self._platform]
         mon_kind, mon_prop = types["monitor"]
         self.ws.create_input(
-            scene_name=_SCENE_NAME,
-            input_name="OBSapp_Monitor",
-            input_kind=mon_kind,
-            input_settings={mon_prop: monitor_value},
-            scene_item_enabled=True,
+            _SCENE_NAME, "OBSapp_Monitor", mon_kind,
+            {mon_prop: monitor_value}, True,
         )
         # Add microphone (if selected).
         if mic_value:
             mic_kind, mic_prop = types["mic"]
             self.ws.create_input(
-                scene_name=_SCENE_NAME,
-                input_name="OBSapp_Mic",
-                input_kind=mic_kind,
-                input_settings={mic_prop: mic_value},
-                scene_item_enabled=True,
+                _SCENE_NAME, "OBSapp_Mic", mic_kind,
+                {mic_prop: mic_value}, True,
             )
+        # Add webcam (if selected).
+        if webcam_value:
+            cam_kind, cam_prop = types["webcam"]
+            self.ws.create_input(
+                _SCENE_NAME, "OBSapp_Webcam", cam_kind,
+                {cam_prop: webcam_value}, True,
+            )
+        # Give OBS a moment to open the capture devices before recording starts.
+        # Without this, the monitor source may produce a black frame and webcam
+        # hardware may not finish initialising in time.
+        time.sleep(2)
 
     def start_recording(self) -> None:
         assert self.ws is not None
@@ -169,42 +258,58 @@ class OBSController:
     # ── private helpers ───────────────────────────────────────────────
 
     def _find_obs_executable(self) -> str:
+        if self._obs_exe is not None:
+            return self._obs_exe
         if self._platform == "win32":
-            portable = self.obs_dir / "bin" / "64bit" / "obs64.exe"
-            if portable.exists():
-                return str(portable)
             progfiles = os.environ.get("ProgramFiles", r"C:\Program Files")
             system = Path(progfiles) / "obs-studio" / "bin" / "64bit" / "obs64.exe"
             if system.exists():
-                return str(system)
+                self._obs_exe = str(system)
+                return self._obs_exe
             raise FileNotFoundError("OBS Studio not found")
         if self._platform == "darwin":
             app = Path("/Applications/OBS.app/Contents/MacOS/OBS")
             if app.exists():
-                return str(app)
+                self._obs_exe = str(app)
+                return self._obs_exe
             raise FileNotFoundError("OBS Studio not found")
         # linux – assume 'obs' is in PATH
-        return "obs"
+        self._obs_exe = "obs"
+        return self._obs_exe
 
     def _obs_config_path(self) -> Path:
-        """Portable config directory (written before first OBS start)."""
-        return self.obs_dir / "config" / "obs-studio"
+        """Standard per-user OBS config directory (no --portable flag used)."""
+        if self._platform == "win32":
+            appdata = os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))
+            return Path(appdata) / "obs-studio"
+        elif self._platform == "darwin":
+            return Path.home() / "Library" / "Application Support" / "obs-studio"
+        else:
+            return Path.home() / ".config" / "obs-studio"
 
     def _ensure_obs_config(self) -> None:
-        """Create initial OBS config files if they do not exist yet."""
+        """Create/update OBS config files before launching OBS."""
         cfg = self._obs_config_path()
 
         # ── websocket: enabled, no authentication ──
+        # Always overwrite these fields so a pre-existing user config with
+        # server_enabled=false or a password does not prevent connection.
         ws_dir = cfg / "plugin_config" / "obs-websocket"
         ws_dir.mkdir(parents=True, exist_ok=True)
         ws_cfg = ws_dir / "config.json"
-        if not ws_cfg.exists():
-            ws_cfg.write_text(json.dumps({
-                "server_enabled": True,
-                "server_port": _WS_PORT,
-                "server_password": "",
-                "alerts_enabled": False,
-            }, indent=2))
+        existing = {}
+        if ws_cfg.exists():
+            try:
+                existing = json.loads(ws_cfg.read_text())
+            except Exception:
+                pass
+        existing.update({
+            "server_enabled": True,
+            "server_port": _WS_PORT,
+            "server_password": "",
+            "auth_required": False,
+        })
+        ws_cfg.write_text(json.dumps(existing, indent=2))
 
         # ── profile: low-CPU recording preset ──
         prof = cfg / "basic" / "profiles" / "OBSapp"
@@ -254,36 +359,9 @@ class OBSController:
                 "AlertsEnabled=false\n"
             )
 
-    def _enumerate_devices(self, device_type: str) -> list[tuple[str, str]]:
-        """Create a temporary OBS source, query its device list, remove it."""
-        assert self.ws is not None
-        kind, prop = _SOURCE_TYPES[self._platform][device_type]
-        temp_name = f"_obsapp_enum_{device_type}"
+    def _create_scene_if_missing(self, name: str) -> None:
+        """Create an OBS scene, silently ignoring 'already exists' (code 601)."""
         try:
-            # Ensure scene exists for the temporary source.
-            try:
-                self.ws.create_scene(scene_name=_SCENE_NAME)
-            except Exception:
-                pass
-            self.ws.create_input(
-                scene_name=_SCENE_NAME,
-                input_name=temp_name,
-                input_kind=kind,
-                input_settings={},
-                scene_item_enabled=False,
-            )
-            resp = self.ws.get_input_properties_list_property_items(
-                input_name=temp_name, property_name=prop,
-            )
-            return [
-                (item["itemName"], item["itemValue"])
-                for item in resp.property_items
-            ]
-        except Exception as exc:
-            print(f"Device enumeration for {device_type} failed: {exc}")
-            return []
-        finally:
-            try:
-                self.ws.remove_input(input_name=temp_name)
-            except Exception:
-                pass
+            self.ws.create_scene(name)
+        except Exception:
+            pass  # code 601 = already exists; any other error is also non-fatal here

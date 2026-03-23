@@ -3,7 +3,6 @@
 Entry point: obsapp.main:main  (see pyproject.toml [project.scripts]).
 """
 
-import atexit
 import configparser
 import os
 import sys
@@ -43,7 +42,6 @@ class App(ctk.CTk):
 
         self._current_frame: ctk.CTkFrame | None = None
 
-        atexit.register(self._cleanup)
         self.protocol("WM_DELETE_WINDOW", self.quit_app)
 
         self.show_main_menu()
@@ -89,11 +87,8 @@ class App(ctk.CTk):
     # ── shutdown ──────────────────────────────────────────────────────
 
     def quit_app(self) -> None:
-        self._cleanup()
+        """Close the window; cleanup (stopping OBS) happens in main() after mainloop returns."""
         self.destroy()
-
-    def _cleanup(self) -> None:
-        self.obs.stop()
 
 
 def main() -> None:
@@ -106,7 +101,13 @@ def main() -> None:
     ctk.set_appearance_mode("system")
     ctk.set_default_color_theme("blue")
     app = App(cfg=cfg)
-    app.mainloop()
+    try:
+        app.mainloop()
+    finally:
+        # Runs on normal exit, exceptions, and KeyboardInterrupt.
+        # Not guaranteed on hard crashes (SIGKILL/power loss), but covers all
+        # normal termination paths including unhandled exceptions.
+        app.obs.stop()
 
 
 if __name__ == "__main__":

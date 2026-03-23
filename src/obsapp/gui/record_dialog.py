@@ -1,5 +1,6 @@
 """Record configuration dialog and recording controls (Pause/Resume, Stop)."""
 
+import time
 from pathlib import Path
 
 import customtkinter as ctk
@@ -118,11 +119,14 @@ class RecordDialogFrame(ctk.CTkFrame):
         monitor_val = self._monitor_map.get(self._monitor_var.get(), "")
         mic_name = self._mic_var.get()
         mic_val = self._mic_map.get(mic_name) if mic_name != "<no audio>" else None
+        webcam_name = self._webcam_var.get()
+        webcam_val = self._webcam_map.get(webcam_name) if webcam_name != "<no webcam>" else None
 
         try:
             self.app.obs.setup_recording(
                 monitor_value=monitor_val,
                 mic_value=mic_val,
+                webcam_value=webcam_val,
                 output_dir=str(target_path.parent),
             )
             self.app.obs.start_recording()
@@ -179,13 +183,16 @@ class RecordingFrame(ctk.CTkFrame):
             try:
                 actual_path_str = self.app.obs.stop_recording()
                 # Rename OBS's auto-named file to the user's chosen target.
+                # OBS may still hold the file handle briefly after stop_record()
+                # returns (it flushes on a background thread), so retry with
+                # backoff until the rename succeeds or a timeout is reached.
                 if actual_path_str:
                     actual = Path(actual_path_str)
                     if actual.exists() and actual != self.target_path:
                         self.target_path.parent.mkdir(parents=True, exist_ok=True)
                         if self.target_path.exists():
                             self.target_path.unlink()
-                        actual.rename(self.target_path)
+                        _rename_with_retry(actual, self.target_path)
             except Exception as exc:
                 show_message(self, "Error", f"Error stopping recording:\n{exc}")
             self.app.show_main_menu()
@@ -194,3 +201,26 @@ class RecordingFrame(ctk.CTkFrame):
             self.app.obs.resume_recording()
             self._pause_btn.configure(text="Pause")
             self._paused = False
+
+
+def _rename_with_retry(
+    src: Path,
+    dst: Path,
+    timeout: float = 10.0,
+    interval: float = 0.5,
+) -> None:
+    """Rename *src* to *dst*, retrying on PermissionError for up to *timeout* seconds.
+
+    OBS finalises MP4 files on a background thread after stop_record() returns,
+    so the file handle may still be open for a short time.  On Windows this
+    manifests as [WinError 32] (file in use).
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            src.rename(dst)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(interval)
