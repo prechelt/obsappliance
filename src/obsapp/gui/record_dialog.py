@@ -1,5 +1,6 @@
 """Record configuration dialog and recording controls (Pause/Resume, Stop)."""
 
+import datetime
 import time
 from pathlib import Path
 
@@ -66,13 +67,23 @@ class RecordDialogFrame(ctk.CTkFrame):
         file_row = ctk.CTkFrame(self, fg_color="transparent")
         file_row.pack(padx=PADDING, fill="x")
 
-        self._file_var = ctk.StringVar(value=defaults.get("target_file", ""))
-        ctk.CTkEntry(file_row, textvariable=self._file_var).pack(
-            side="left", fill="x", expand=True, padx=(0, 5),
-        )
+        stored = defaults.get("target_file", "")
+        if stored:
+            stored_path = Path(stored)
+            if stored_path.exists():
+                stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
+                stored = str(stored_path.with_stem(stamp))
+        self._file_var = ctk.StringVar(value=stored)
+        self._file_entry = ctk.CTkEntry(file_row, textvariable=self._file_var)
+        self._file_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
         ctk.CTkButton(
             file_row, text="Browse…", width=80, command=self._browse,
         ).pack(side="right")
+
+        # Set the window wide enough for the entry to show 60 characters.
+        # We defer by one event-loop tick so the entry widget is fully realised
+        # and its internal Tk Entry is accessible for font measurement.
+        self.after(0, self._set_min_width_for_entry)
 
         # ── Buttons ──
         btn_row = ctk.CTkFrame(self, fg_color="transparent")
@@ -85,6 +96,22 @@ class RecordDialogFrame(ctk.CTkFrame):
         ).pack(side="left", padx=5)
 
     # ── callbacks ─────────────────────────────────────────────────────
+
+    def _set_min_width_for_entry(self) -> None:
+        """Set window minsize so the target-file entry displays 60 characters."""
+        from tkinter.font import Font
+        tk_entry = self._file_entry._entry  # underlying tk.Entry widget
+        font = Font(font=tk_entry.cget("font"))
+        # font.measure() returns screen pixels; CTk minsize() takes logical
+        # pixels (it multiplies by the window scaling factor internally).
+        scaling = self.app._get_window_scaling()
+        char_w = font.measure("0")
+        entry_target_w = int(char_w * 60 / scaling)
+        # Total width = entry + Browse button + padx on both sides
+        browse_w = 80
+        browse_padx = 5
+        min_w = entry_target_w + browse_w + browse_padx + 2 * PADDING
+        self.app.minsize(min_w, 0)
 
     def _browse(self) -> None:
         path = choose_save_file(self)
