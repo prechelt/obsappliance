@@ -30,8 +30,11 @@ class RecordDialogFrame(ctk.CTkFrame):
         )
         self._monitor_var = ctk.StringVar()
         monitors = app.obs.get_monitors()
-        monitor_names = [n for n, _ in monitors] or ["(no monitors found)"]
-        self._monitor_map = dict(monitors)
+        monitor_names = [n for n, *_ in monitors] or ["(no monitors found)"]
+        self._monitor_map = {n: v for n, v, *_ in monitors}
+        self._monitor_res_map: dict[str, tuple[int, int]] = {
+            n: (w, h) for n, _v, w, h in monitors
+        }
         ctk.CTkOptionMenu(
             self, variable=self._monitor_var, values=monitor_names,
         ).pack(padx=PADDING, fill="x")
@@ -152,7 +155,9 @@ class RecordDialogFrame(ctk.CTkFrame):
             "target_file": str(target_path),
         })
 
-        monitor_val = self._monitor_map.get(self._monitor_var.get(), "")
+        monitor_name = self._monitor_var.get()
+        monitor_val = self._monitor_map.get(monitor_name, "")
+        monitor_res = self._monitor_res_map.get(monitor_name, (1920, 1080))
         mic_name = self._mic_var.get()
         mic_val = self._mic_map.get(mic_name) if mic_name != "<no audio>" else None
         webcam_name = self._webcam_var.get()
@@ -161,6 +166,7 @@ class RecordDialogFrame(ctk.CTkFrame):
         try:
             self.app.obs.setup_recording(
                 monitor_value=monitor_val,
+                monitor_resolution=monitor_res,
                 mic_value=mic_val,
                 webcam_value=webcam_val,
                 output_dir=str(target_path.parent),

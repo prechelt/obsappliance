@@ -12,16 +12,17 @@ import subprocess
 # Windows
 # ---------------------------------------------------------------------------
 
-def _enum_monitors_win32() -> list[tuple[str, str]]:
-    """Return [(display_name, gdi_device_name), ...] for each monitor via Win32.
+def _enum_monitors_win32() -> list[tuple[str, str, int, int]]:
+    """Return [(display_name, gdi_device_name, width, height), ...] via Win32.
 
-    The value is the GDI device name (e.g. "\\\\.\\DISPLAY1") which is what
-    OBS's screen_capture_kit source expects for its "monitor_id" property.
+    The GDI device name (e.g. "\\\\.\\DISPLAY1") is the value OBS's
+    monitor_capture source expects for its "monitor_id" property.
+    Width and height are the monitor's native pixel dimensions.
     """
     import ctypes
     import ctypes.wintypes as wt
 
-    monitors: list[tuple[str, str]] = []
+    monitors: list[tuple[str, str, int, int]] = []
 
     MONITORENUMPROC = ctypes.WINFUNCTYPE(
         ctypes.c_bool,
@@ -51,7 +52,7 @@ def _enum_monitors_win32() -> list[tuple[str, str]]:
         if mi.dwFlags & MONITORINFOF_PRIMARY:
             label += " (primary)"
         # szDevice is the GDI device name, e.g. "\\.\DISPLAY1"
-        monitors.append((label, mi.szDevice))
+        monitors.append((label, mi.szDevice, w, h))
         return True
 
     ctypes.windll.user32.EnumDisplayMonitors(
@@ -397,7 +398,7 @@ def _enum_webcams_win32() -> list[tuple[str, str]]:
 # Linux
 # ---------------------------------------------------------------------------
 
-def _enum_monitors_linux() -> list[tuple[str, str]]:
+def _enum_monitors_linux() -> list[tuple[str, str, int, int]]:
     """Return monitor list on Linux using xrandr output."""
     try:
         out = subprocess.check_output(
@@ -409,8 +410,8 @@ def _enum_monitors_linux() -> list[tuple[str, str]]:
     for line in out.splitlines():
         m = re.match(r"\s*(\d+):\s+[+*]?(\S+)\s+(\d+)/\d+x(\d+)/\d+\+\d+\+\d+", line)
         if m:
-            idx, name, w, h = m.group(1), m.group(2), m.group(3), m.group(4)
-            results.append((f"{name} ({w}×{h})", idx))
+            idx, name, w, h = m.group(1), m.group(2), int(m.group(3)), int(m.group(4))
+            results.append((f"{name} ({w}×{h})", idx, w, h))
     return results
 
 
@@ -443,7 +444,7 @@ def _enum_mics_linux() -> list[tuple[str, str]]:
 # macOS
 # ---------------------------------------------------------------------------
 
-def _enum_monitors_darwin() -> list[tuple[str, str]]:
+def _enum_monitors_darwin() -> list[tuple[str, str, int, int]]:
     """Return monitor list on macOS using system_profiler."""
     try:
         out = subprocess.check_output(
@@ -457,7 +458,8 @@ def _enum_monitors_darwin() -> list[tuple[str, str]]:
     for line in out.splitlines():
         m = re.match(r"\s+Resolution:\s+(\d+)\s*x\s*(\d+)", line)
         if m:
-            results.append((f"Display {idx + 1}: {m.group(1)}×{m.group(2)}", str(idx)))
+            w, h = int(m.group(1)), int(m.group(2))
+            results.append((f"Display {idx + 1}: {w}×{h}", str(idx), w, h))
             idx += 1
     return results
 

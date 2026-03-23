@@ -1,5 +1,6 @@
 """OBS Studio process lifecycle and websocket control."""
 
+import configparser
 import json
 import logging
 import os
@@ -150,8 +151,8 @@ class OBSController:
 
     # ── device enumeration (native OS, no OBS involvement) ───────────
 
-    def get_monitors(self) -> list[tuple[str, str]]:
-        """Return [(display_name, value), ...] using native OS APIs."""
+    def get_monitors(self) -> list[tuple[str, str, int, int]]:
+        """Return [(display_name, value, width, height), ...] using native OS APIs."""
         try:
             if self._platform == "win32":
                 return _enum_monitors_win32()
@@ -190,12 +191,20 @@ class OBSController:
     def setup_recording(
         self,
         monitor_value: str,
+        monitor_resolution: tuple[int, int],
         mic_value: str | None,
         webcam_value: str | None,
         output_dir: str,
     ) -> None:
         """Configure OBS scene and sources for the upcoming recording."""
         assert self.ws is not None
+        # Update the canvas/output resolution in the profile to match the
+        # selected monitor.  Without this, a monitor with a different resolution
+        # than the profile default gets cropped (if larger) or pillar-/letterboxed
+        # (if smaller).  We write both BaseCX/BaseCY (canvas) and OutputCX/OutputCY
+        # (encode output) so there is no scaling step at all.
+        w, h = monitor_resolution
+        self._set_profile_resolution(w, h)
         # Set output directory.
         self.ws.set_profile_parameter(
             category="SimpleOutput",
@@ -374,3 +383,35 @@ class OBSController:
             self.ws.create_scene(name)
         except Exception:
             pass  # code 601 = already exists; any other error is also non-fatal here
+
+    def _set_profile_resolution(self, width: int, height: int) -> None:
+        """Write canvas and output resolution into the OBSapp profile basic.ini.
+
+        OBS reads these values at startup.  Because OBS is already running when
+        this is called, we also push the values via websocket so they take effect
+        for the current session without requiring an OBS restart.
+        """
+        assert self.ws is not None
+        # Persist to disk so next launch also uses the right resolution.
+        prof_ini = self._obs_config_path() / "basic" / "profiles" / "OBSapp" / "basic.ini"
+        cfg = configparser.RawConfigParser()
+        cfg.optionxform = str  # preserve key case (OBS is case-sensitive)
+        if prof_ini.exists():
+            cfg.read(prof_ini, encoding="utf-8-sig")
+        if not cfg.has_section("Video"):
+            cfg.add_section("Video")
+        cfg.set("Video", "BaseCX",   str(width))
+        cfg.set("Video", "BaseCY",   str(height))
+        cfg.set("Video", "OutputCX", str(width))
+        cfg.set("Video", "OutputCY", str(height))
+        with prof_ini.open("w", encoding="utf-8-sig") as fh:
+            cfg.write(fh)
+        # Push to the running OBS session via websocket so we don't need a restart.
+        self.ws.set_video_settings(
+            numerator=10,
+            denominator=1,
+            base_width=width,
+            base_height=height,
+            out_width=width,
+            out_height=height,
+        )
