@@ -206,11 +206,20 @@ class OBSController:
         self._create_scene_if_missing(_SCENE_NAME)
         self.ws.set_current_program_scene(_SCENE_NAME)
         # Remove old sources so we start clean.
+        removed_any = False
         for name in ("OBSapp_Monitor", "OBSapp_Mic", "OBSapp_Webcam"):
             try:
                 self.ws.remove_input(name)
+                removed_any = True
             except Exception:
                 pass
+        # OBS processes source removal asynchronously.  If any source existed
+        # and was just removed, wait briefly so OBS fully disposes of the
+        # capture device before we try to re-create a source with the same name.
+        # Without this delay, create_input can race and return code 601
+        # ("source already exists") even though the remove succeeded.
+        if removed_any:
+            time.sleep(0.5)
         # Add monitor capture.
         types = _SOURCE_TYPES[self._platform]
         mon_kind, mon_prop = types["monitor"]
