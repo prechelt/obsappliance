@@ -3,11 +3,64 @@
 import re
 import tkinter as tk
 from tkinter.font import Font
+from typing import Union
 
 import customtkinter as ctk
 from tkinter import filedialog
 
 PADDING = 20  # ~2 em
+
+
+# ---------------------------------------------------------------------------
+# Keyboard-navigation helpers
+# ---------------------------------------------------------------------------
+
+def fix_textbox_tab(textbox: ctk.CTkTextbox) -> None:
+    """Make Tab/Shift-Tab move focus instead of inserting a literal tab char.
+
+    CTkTextbox wraps a tkinter.Text widget, which by default inserts '\\t'
+    when Tab is pressed.  This helper replaces that behaviour with standard
+    focus traversal so the textbox participates in the dialog's tab ring
+    without ever emitting a tab character.
+    """
+    inner: tk.Text = textbox._textbox  # type: ignore[attr-defined]
+
+    def _tab(event: tk.Event) -> str:
+        event.widget.tk_focusNext().focus_set()
+        return "break"
+
+    def _shift_tab(event: tk.Event) -> str:
+        event.widget.tk_focusPrev().focus_set()
+        return "break"
+
+    inner.bind("<Tab>", _tab, add=False)
+    inner.bind("<Shift-Tab>", _shift_tab, add=False)
+
+
+def setup_keyboard_nav(
+    *widgets: Union[ctk.CTkButton, ctk.CTkOptionMenu],
+) -> None:
+    """Bind Return/Space activation and focus-highlight to CTkButtons and CTkOptionMenus.
+
+    CTkButton's internal canvas already receives Tab focus but has no keyboard
+    activation binding and no visible focus indicator.  CTkOptionMenu's canvas
+    likewise.  This helper:
+      • adds Return and Space handlers so keyboard-only users can activate widgets,
+      • hooks FocusIn/FocusOut to the existing _on_enter/_on_leave hover methods so
+        the hover highlight also appears while the widget holds keyboard focus.
+    """
+    for widget in widgets:
+        if isinstance(widget, ctk.CTkButton):
+            widget.bind("<Return>",   lambda e, w=widget: w.invoke())
+            widget.bind("<space>",    lambda e, w=widget: w.invoke())
+            widget.bind("<FocusIn>",  lambda e, w=widget: w._on_enter())   # type: ignore[attr-defined]
+            widget.bind("<FocusOut>", lambda e, w=widget: w._on_leave())   # type: ignore[attr-defined]
+        elif isinstance(widget, ctk.CTkOptionMenu):
+            canvas = widget._canvas  # type: ignore[attr-defined]
+            canvas.bind("<Return>",   lambda e, w=widget: w._open_dropdown_menu(), add=True)  # type: ignore[attr-defined]
+            canvas.bind("<space>",    lambda e, w=widget: w._open_dropdown_menu(), add=True)  # type: ignore[attr-defined]
+            canvas.bind("<FocusIn>",  lambda e, w=widget: w._on_enter(), add=True)            # type: ignore[attr-defined]
+            canvas.bind("<FocusOut>", lambda e, w=widget: w._on_leave(), add=True)            # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
@@ -149,9 +202,12 @@ def show_message(parent, title: str, message: str) -> None:
         dialog, text=message, wraplength=400, justify="left",
     ).pack(padx=PADDING, pady=(PADDING, 10))
 
-    ctk.CTkButton(dialog, text="OK", command=dialog.destroy).pack(
-        padx=PADDING, pady=(0, PADDING),
-    )
+    ok_btn = ctk.CTkButton(dialog, text="OK", command=dialog.destroy)
+    ok_btn.pack(padx=PADDING, pady=(0, PADDING))
+    setup_keyboard_nav(ok_btn)
+    dialog.bind("<Return>", lambda e: dialog.destroy())
+    dialog.bind("<Escape>", lambda e: dialog.destroy())
+    dialog.after(0, ok_btn.focus_set)
     dialog.wait_window()
 
 
@@ -176,10 +232,14 @@ def ask_confirmation(parent, title: str, message: str) -> bool:
         result[0] = True
         dialog.destroy()
 
-    ctk.CTkButton(btn_frame, text="OK", command=on_ok).pack(side="left", padx=5)
-    ctk.CTkButton(btn_frame, text="Cancel", command=dialog.destroy).pack(
-        side="left", padx=5,
-    )
+    ok_btn = ctk.CTkButton(btn_frame, text="OK", command=on_ok)
+    ok_btn.pack(side="left", padx=5)
+    cancel_btn = ctk.CTkButton(btn_frame, text="Cancel", command=dialog.destroy)
+    cancel_btn.pack(side="left", padx=5)
+    setup_keyboard_nav(ok_btn, cancel_btn)
+    dialog.bind("<Return>", lambda e: on_ok())
+    dialog.bind("<Escape>", lambda e: dialog.destroy())
+    dialog.after(0, ok_btn.focus_set)
     dialog.wait_window()
     return result[0]
 

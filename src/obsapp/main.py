@@ -56,14 +56,15 @@ class App(ctk.CTk):
 
     # ── frame management ──────────────────────────────────────────────
 
-    def _show_frame(self, frame: ctk.CTkFrame) -> None:
+    def _show_frame(self, frame: ctk.CTkFrame, title: str = "OBSapp") -> None:
         if self._current_frame is not None:
             self._current_frame.destroy()
         self._current_frame = frame
         self._current_frame.pack(fill="both", expand=True)
+        self.title(title)
 
     def show_main_menu(self) -> None:
-        self._show_frame(MainMenuFrame(self, app=self))
+        self._show_frame(MainMenuFrame(self, app=self), title="OBSapp")
 
     def show_record_dialog(self) -> None:
         """Lazy-start OBS, then show the record configuration dialog."""
@@ -82,21 +83,27 @@ class App(ctk.CTk):
                 self.obs.start()
             except Exception as exc:
                 loading.destroy()
-                show_message(self, "Error", f"Failed to start OBS:\n{exc}")
+                show_message(self, "OBSapp: Error", f"Failed to start OBS:\n{exc}")
                 self.show_main_menu()
                 return
             loading.destroy()
 
-        self._show_frame(RecordDialogFrame(self, app=self))
+        self._show_frame(RecordDialogFrame(self, app=self), title="OBSapp: Record video")
 
     def show_recording_controls(self, target_path: Path) -> None:
-        self._show_frame(RecordingFrame(self, app=self, target_path=target_path))
+        self._show_frame(
+            RecordingFrame(self, app=self, target_path=target_path),
+            title="OBSapp: Record video",
+        )
 
     def show_censor_dialog(self) -> None:
-        self._show_frame(CensorDialogFrame(self, app=self))
+        self._show_frame(CensorDialogFrame(self, app=self), title="OBSapp: Censor a video")
 
     def show_concat_dialog(self) -> None:
-        self._show_frame(ConcatDialogFrame(self, app=self))
+        self._show_frame(
+            ConcatDialogFrame(self, app=self),
+            title="OBSapp: Concatenate several videos",
+        )
 
     # ── shutdown ──────────────────────────────────────────────────────
 

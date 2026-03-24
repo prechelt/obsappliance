@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import customtkinter as ctk
 
-from .widgets import PADDING, ask_confirmation, choose_save_file, show_message
+from .widgets import PADDING, ask_confirmation, choose_save_file, fix_textbox_tab, setup_keyboard_nav, show_message
 
 if TYPE_CHECKING:
     from ..main import App
@@ -35,9 +35,10 @@ class RecordDialogFrame(ctk.CTkFrame):
         self._monitor_res_map: dict[str, tuple[int, int]] = {
             n: (w, h) for n, _v, w, h in monitors
         }
-        ctk.CTkOptionMenu(
+        self._monitor_menu = ctk.CTkOptionMenu(
             self, variable=self._monitor_var, values=monitor_names,
-        ).pack(padx=PADDING, fill="x")
+        )
+        self._monitor_menu.pack(padx=PADDING, fill="x")
         if defaults.get("monitor") in monitor_names:
             self._monitor_var.set(defaults["monitor"])
 
@@ -49,9 +50,10 @@ class RecordDialogFrame(ctk.CTkFrame):
         mics = [("<no audio>", "")] + app.obs.get_microphones()
         mic_names = [n for n, _ in mics]
         self._mic_map = dict(mics)
-        ctk.CTkOptionMenu(
+        self._mic_menu = ctk.CTkOptionMenu(
             self, variable=self._mic_var, values=mic_names,
-        ).pack(padx=PADDING, fill="x")
+        )
+        self._mic_menu.pack(padx=PADDING, fill="x")
         if defaults.get("mic") in mic_names:
             self._mic_var.set(defaults["mic"])
 
@@ -63,9 +65,10 @@ class RecordDialogFrame(ctk.CTkFrame):
         webcams = [("<no webcam>", "")] + app.obs.get_webcams()
         webcam_names = [n for n, _ in webcams]
         self._webcam_map = dict(webcams)
-        ctk.CTkOptionMenu(
+        self._webcam_menu = ctk.CTkOptionMenu(
             self, variable=self._webcam_var, values=webcam_names,
-        ).pack(padx=PADDING, fill="x")
+        )
+        self._webcam_menu.pack(padx=PADDING, fill="x")
         if defaults.get("webcam") in webcam_names:
             self._webcam_var.set(defaults["webcam"])
 
@@ -85,9 +88,11 @@ class RecordDialogFrame(ctk.CTkFrame):
         self._file_var = ctk.StringVar(value=stored)
         self._file_entry = ctk.CTkEntry(file_row, textvariable=self._file_var)
         self._file_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
-        ctk.CTkButton(
+        self._file_entry.bind("<Return>", lambda e: self._on_record())
+        browse_btn = ctk.CTkButton(
             file_row, text="Browse…", width=80, command=self._browse,
-        ).pack(side="right")
+        )
+        browse_btn.pack(side="right")
 
         # Set the window wide enough for the entry to show 60 characters.
         # We defer by one event-loop tick so the entry widget is fully realised
@@ -97,12 +102,17 @@ class RecordDialogFrame(ctk.CTkFrame):
         # ── Buttons ──
         btn_row = ctk.CTkFrame(self, fg_color="transparent")
         btn_row.pack(padx=PADDING, pady=PADDING)
-        ctk.CTkButton(btn_row, text="Record", command=self._on_record).pack(
-            side="left", padx=5,
-        )
-        ctk.CTkButton(
+        record_btn = ctk.CTkButton(btn_row, text="Record", command=self._on_record)
+        record_btn.pack(side="left", padx=5)
+        cancel_btn = ctk.CTkButton(
             btn_row, text="Cancel", command=self.app.show_main_menu,
-        ).pack(side="left", padx=5)
+        )
+        cancel_btn.pack(side="left", padx=5)
+
+        setup_keyboard_nav(self._monitor_menu, self._mic_menu, self._webcam_menu,
+                           browse_btn, record_btn, cancel_btn)
+        self.app.bind_all("<Escape>", lambda e: self.app.show_main_menu())
+        self.after(0, lambda: self._monitor_menu._canvas.focus_set())
 
     # ── callbacks ─────────────────────────────────────────────────────
 
@@ -133,7 +143,7 @@ class RecordDialogFrame(ctk.CTkFrame):
     def _on_record(self) -> None:
         target = self._file_var.get().strip()
         if not target:
-            show_message(self, "Error", "Please specify a target MP4 file.")
+            show_message(self, "OBSapp: Error", "Please specify a target MP4 file.")
             return
 
         target_path = Path(target)
@@ -142,7 +152,7 @@ class RecordDialogFrame(ctk.CTkFrame):
 
         if target_path.exists():
             if not ask_confirmation(
-                self, "File exists",
+                self, "OBSapp: File exists",
                 f"{target_path.name} already exists.\nOverwrite?",
             ):
                 return
@@ -174,7 +184,7 @@ class RecordDialogFrame(ctk.CTkFrame):
             self.app.obs.start_recording()
             self.app.show_recording_controls(target_path)
         except Exception as exc:
-            show_message(self, "Error", f"Failed to start recording:\n{exc}")
+            show_message(self, "OBSapp: Error", f"Failed to start recording:\n{exc}")
 
 
 class RecordingFrame(ctk.CTkFrame):
@@ -200,9 +210,11 @@ class RecordingFrame(ctk.CTkFrame):
         )
         self._pause_btn.pack(side="left", padx=5)
 
-        ctk.CTkButton(btn_row, text="Stop", command=self._on_stop).pack(
-            side="left", padx=5,
-        )
+        stop_btn = ctk.CTkButton(btn_row, text="Stop", command=self._on_stop)
+        stop_btn.pack(side="left", padx=5)
+
+        setup_keyboard_nav(self._pause_btn, stop_btn)
+        self.after(0, self._pause_btn.focus_set)
 
     def _on_pause(self) -> None:
         if self._paused:
@@ -221,7 +233,7 @@ class RecordingFrame(ctk.CTkFrame):
             self._paused = True
             self._pause_btn.configure(text="Resume")
 
-        if ask_confirmation(self, "Stop Recording", "Stop recording?"):
+        if ask_confirmation(self, "OBSapp: Stop recording", "Stop recording?"):
             try:
                 actual_path_str = self.app.obs.stop_recording()
                 # Rename OBS's auto-named file to the user's chosen target.
@@ -236,7 +248,7 @@ class RecordingFrame(ctk.CTkFrame):
                             self.target_path.unlink()
                         _rename_with_retry(actual, self.target_path)
             except Exception as exc:
-                show_message(self, "Error", f"Error stopping recording:\n{exc}")
+                show_message(self, "OBSapp: Error", f"Error stopping recording:\n{exc}")
             self.app.show_main_menu()
         else:
             # Cancel → unpause (2a6).

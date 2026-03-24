@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import customtkinter as ctk
 
-from .widgets import PADDING, MarkupLabel, show_message
+from .widgets import PADDING, MarkupLabel, setup_keyboard_nav, show_message
 
 if TYPE_CHECKING:
     from ..main import App
@@ -38,7 +38,7 @@ class MainMenuFrame(ctk.CTkFrame):
         self._explanation_label.pack(padx=PADDING, pady=(PADDING, 10), fill="x")
 
         self._action_var = ctk.StringVar(value="Select action...")
-        ctk.CTkOptionMenu(
+        self._action_menu = ctk.CTkOptionMenu(
             self,
             variable=self._action_var,
             values=[
@@ -49,9 +49,12 @@ class MainMenuFrame(ctk.CTkFrame):
                 "Exit",
             ],
             command=self._on_action,
-        ).pack(padx=PADDING, pady=(0, PADDING))
+        )
+        self._action_menu.pack(padx=PADDING, pady=(0, PADDING))
 
+        setup_keyboard_nav(self._action_menu)
         self.after(0, self._fit_width_to_explanation)
+        self.after(0, lambda: self._action_menu._canvas.focus_set())
 
     def _fit_width_to_explanation(self) -> None:
         """Set window minsize so no line in the explanation wraps."""
@@ -73,6 +76,6 @@ class MainMenuFrame(ctk.CTkFrame):
             case "Concatenate videos...":
                 self.app.show_concat_dialog()
             case "Upload video...":
-                show_message(self, "Upload video", "Not implemented yet.")
+                show_message(self, "OBSapp: Upload video", "Not implemented yet.")
             case "Exit":
                 self.app.quit_app()

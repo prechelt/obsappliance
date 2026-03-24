@@ -203,10 +203,10 @@ def censor(
     height: int,
     fps: float,
 ) -> None:
-    """Remove ranges from the video, inserting a 1-second info frame for each.
+    """Remove ranges from the video, inserting a short info frame for each.
 
     ranges must be sorted by start time and non-overlapping.
-    Each censored range is replaced by a 1-second white frame with text
+    Each censored range is replaced by a short white frame with text
     "<range> deleted", then all pieces are concatenated.
     """
     info = probe_video(ffmpeg_path, input_path)
@@ -404,7 +404,7 @@ def concatenate(
     output_path: Path,
     progress_callback: Callable[[float], None] | None = None,
 ) -> None:
-    """Concatenate videos, inserting a 1-second title frame before each part.
+    """Concatenate videos, inserting a short title frame before each part.
 
     The title frame shows the filename (not the full path) of the upcoming part.
     All inputs are re-encoded to a common libx264/aac format normalised to the

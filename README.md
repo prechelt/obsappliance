@@ -71,7 +71,7 @@ Variants:
      - MP4 file name text field + file-chooser button.
      - A scrollable text area (initially ~5 lines tall) for time ranges, one per line.
        Format: `M:SS-M:SS` or `H:MM:SS-H:MM:SS` (whole seconds only).
-       Example: "0:57-1:02" means seconds 57–62 will be cut and replaced by a 1-second white frame
+       Example: "0:57-1:02" means seconds 57–62 will be cut and replaced by a short white frame
        with large black text "0:57-1:02 deleted". The output video is shorter than the input.
      - Buttons "OK", "Cancel".
      On "OK": validate ranges (no overlaps, within video duration, valid format).
@@ -93,7 +93,7 @@ Variants:
 2c4. OBSapp validates that all input files exist and are compatible (same resolution, codec, frame rate).
    If not, show a message window listing the problems with an "OK" button; return to this dialog.
 2c5. OBSapp writes the concatenated video to the output file.
-     Before each part (including the first), it inserts a 1-second white frame with large black text
+     Before each part (including the first), it inserts a short white frame with large black text
      stating the file name (not path) of the upcoming part.
 2c6. Returns to main GUI. ("Cancel" discards the list and returns without concatenating.)
 
@@ -174,10 +174,6 @@ PYTHONPATH=src python -m obsapp.main tmp_obsappdir/obsapp-config.ini
 
 Steps to do:
 - Get "concatenate" functionality to work
-- Let Cancel buttons react to ESC
-- Let confirmation buttons react to RETURN
-- Let TAB in textareas mean "go to next GUI element"
-- Window title should mention op name
 - Determine window sizes in the natural manner: based on content sizes.
 - _make_text_frame(): make the font scaling work, it currently does not scale down long filenames.
 - Get "censor" functionality to work

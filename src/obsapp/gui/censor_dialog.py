@@ -1,7 +1,7 @@
 """Censor dialog – use-case 2b.
 
 User picks an MP4, specifies time ranges to delete, and OBSapp rewrites the
-file as <name>-censored.mp4 with each range replaced by a 1-second info frame.
+file as <name>-censored.mp4 with each range replaced by a short info frame.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import customtkinter as ctk
 from tkinter import filedialog
 
-from .widgets import PADDING, show_message
+from .widgets import PADDING, fix_textbox_tab, setup_keyboard_nav, show_message
 from ..video_ops import (
     find_ffmpeg,
     probe_video,
@@ -29,7 +29,7 @@ _EXPLANATION = (
     "Enter the MP4 file to edit and the time ranges you want to remove.\n"
     "Format: M:SS-M:SS or H:MM:SS-H:MM:SS (whole seconds, one range per line).\n"
     "Example: 0:57-1:02\n"
-    "Each removed range is replaced by a 1-second info frame.\n"
+    "Each removed range is replaced by a short info frame.\n"
     "Output is written to <filename>-censored.mp4."
 )
 
@@ -56,12 +56,12 @@ class CensorDialogFrame(ctk.CTkFrame):
         file_row = ctk.CTkFrame(self, fg_color="transparent")
         file_row.pack(padx=PADDING, fill="x")
         self._file_var = ctk.StringVar()
-        ctk.CTkEntry(file_row, textvariable=self._file_var).pack(
-            side="left", fill="x", expand=True, padx=(0, 5),
-        )
-        ctk.CTkButton(
+        self._file_entry = ctk.CTkEntry(file_row, textvariable=self._file_var)
+        self._file_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        browse_btn = ctk.CTkButton(
             file_row, text="Browse…", width=80, command=self._browse,
-        ).pack(side="right")
+        )
+        browse_btn.pack(side="right")
 
         # ── ranges text area ──
         ctk.CTkLabel(self, text="Time ranges to remove (one per line):").pack(
@@ -79,9 +79,15 @@ class CensorDialogFrame(ctk.CTkFrame):
         btn_row.pack(padx=PADDING, pady=PADDING)
         self._ok_btn = ctk.CTkButton(btn_row, text="OK", command=self._on_ok)
         self._ok_btn.pack(side="left", padx=5)
-        ctk.CTkButton(
+        cancel_btn = ctk.CTkButton(
             btn_row, text="Cancel", command=self.app.show_main_menu,
-        ).pack(side="left", padx=5)
+        )
+        cancel_btn.pack(side="left", padx=5)
+
+        fix_textbox_tab(self._ranges_box)
+        setup_keyboard_nav(browse_btn, self._ok_btn, cancel_btn)
+        self.app.bind_all("<Escape>", lambda e: self.app.show_main_menu())
+        self.after(0, self._file_entry.focus_set)
 
     # ── callbacks ─────────────────────────────────────────────────────
 
