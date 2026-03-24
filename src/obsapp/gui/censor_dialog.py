@@ -144,7 +144,8 @@ class CensorDialogFrame(ctk.CTkFrame):
                 )
                 self.after(0, lambda: self._on_done(output_path, error=None))
             except Exception as exc:
-                self.after(0, lambda: self._on_done(output_path, error=str(exc)))
+                msg = str(exc)
+                self.after(0, lambda: self._on_done(output_path, error=msg))
 
         threading.Thread(target=_worker, daemon=True).start()
 

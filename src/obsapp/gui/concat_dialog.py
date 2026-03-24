@@ -157,15 +157,21 @@ class ConcatDialogFrame(ctk.CTkFrame):
         self.app.config_store.save({"concat_output_file": str(output_path)})
 
         self._done_btn.configure(state="disabled")
-        self._progress_label.configure(text="Processing… please wait.")
+        self._progress_label.configure(text="Processing… 0%")
         self.update()
+
+        def _progress(pct: float) -> None:
+            self.after(0, lambda p=pct: self._progress_label.configure(
+                text=f"Processing… {p * 100:.0f}%"
+            ))
 
         def _worker():
             try:
-                concatenate(ffmpeg, input_paths, output_path)
+                concatenate(ffmpeg, input_paths, output_path, _progress)
                 self.after(0, lambda: self._on_finished(output_path, error=None))
             except Exception as exc:
-                self.after(0, lambda: self._on_finished(output_path, error=str(exc)))
+                msg = str(exc)
+                self.after(0, lambda: self._on_finished(output_path, error=msg))
 
         threading.Thread(target=_worker, daemon=True).start()
 

@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 
@@ -98,64 +99,6 @@ def _ffprobe_from_ffmpeg(ffmpeg_path: str) -> str:
         return exe
     raise FileNotFoundError("ffprobe not found alongside ffmpeg or on PATH")
 
-
-def _probe_streams(ffmpeg_path: str, input_path: Path) -> dict:
-    """Return codec-level stream info needed for compatibility checking.
-
-    Returns a dict with keys:
-      vcodec   – video codec name (str)
-      width    – int
-      height   – int
-      fps      – float
-      acodec   – audio codec name (str) or None if no audio stream
-    """
-    ffprobe = _ffprobe_from_ffmpeg(ffmpeg_path)
-    result = subprocess.run(
-        [ffprobe, "-v", "quiet", "-print_format", "json",
-         "-show_streams", str(input_path)],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"ffprobe failed:\n{result.stderr}")
-    streams = json.loads(result.stdout)["streams"]
-    vstream = next((s for s in streams if s["codec_type"] == "video"), None)
-    astream = next((s for s in streams if s["codec_type"] == "audio"), None)
-    if vstream is None:
-        raise RuntimeError(f"No video stream found in {input_path}")
-    fps_raw = vstream.get("avg_frame_rate") or vstream.get("r_frame_rate", "10/1")
-    num, den = fps_raw.split("/")
-    fps = float(num) / float(den) if float(den) else 10.0
-    return {
-        "vcodec": vstream["codec_name"],
-        "width":  int(vstream["width"]),
-        "height": int(vstream["height"]),
-        "fps":    fps,
-        "acodec": astream["codec_name"] if astream else None,
-    }
-
-
-def _inputs_are_compatible(ffmpeg_path: str, input_paths: list[Path]) -> bool:
-    """Return True iff all input files share the same video codec, resolution,
-    fps, and audio codec (or all have no audio).
-
-    When True, concatenate() can stream-copy inputs instead of re-encoding.
-    When False (including on probe errors), fall back to re-encoding.
-    """
-    try:
-        infos = [_probe_streams(ffmpeg_path, p) for p in input_paths]
-    except Exception:
-        return False
-    ref = infos[0]
-    for info in infos[1:]:
-        if info["vcodec"] != ref["vcodec"]:
-            return False
-        if info["width"] != ref["width"] or info["height"] != ref["height"]:
-            return False
-        if abs(info["fps"] - ref["fps"]) > 0.01:
-            return False
-        if info["acodec"] != ref["acodec"]:
-            return False
-    return True
 
 
 # ---------------------------------------------------------------------------
@@ -322,6 +265,7 @@ def _extract_segment(
     width: int,
     height: int,
     fps: float,
+    segment_progress_cb: Callable[[float], None] | None = None,
 ) -> None:
     duration = end - start
     cmd = [
@@ -341,7 +285,10 @@ def _extract_segment(
         "-movflags", "+faststart",
         str(out_path),
     ]
-    _run(cmd)
+    if segment_progress_cb is not None:
+        _run_with_progress(cmd, segment_progress_cb)
+    else:
+        _run(cmd)
 
 
 def _make_text_frame(
@@ -442,8 +389,7 @@ def validate_concat_inputs(
 ) -> list[str]:
     """Return a list of error strings (empty = all OK).
 
-    Checks: all files exist.  Format compatibility is checked inside
-    concatenate() and determines whether inputs are stream-copied or re-encoded.
+    Checks: all files exist.
     """
     errors = []
     for p in input_paths:
@@ -456,73 +402,98 @@ def concatenate(
     ffmpeg_path: str,
     input_paths: list[Path],
     output_path: Path,
+    progress_callback: Callable[[float], None] | None = None,
 ) -> None:
     """Concatenate videos, inserting a 1-second title frame before each part.
 
     The title frame shows the filename (not the full path) of the upcoming part.
+    All inputs are re-encoded to a common libx264/aac format normalised to the
+    resolution and frame rate of the first file.
 
-    If all inputs share the same video codec, resolution, fps, and audio codec,
-    they are stream-copied (no re-encoding).  Otherwise all inputs are re-encoded
-    to a common format based on the first file's settings.
+    progress_callback, when provided, is called with a float in [0.0, 1.0]
+    representing the overall progress.  It is called from the worker thread;
+    callers must marshal to the GUI thread if required.  Progress is based on
+    total video duration and advances in real time as FFmpeg processes each file.
     """
     if not input_paths:
         raise ValueError("No input files provided")
 
-    # Probe the first file for target resolution/fps and decide copy vs re-encode.
+    def _report(pct: float) -> None:
+        if progress_callback is not None:
+            progress_callback(max(0.0, min(1.0, pct)))
+
+    # Probe the first file for target resolution and fps.
     info = probe_video(ffmpeg_path, input_paths[0])
     width, height, fps = info["width"], info["height"], info["fps"]
 
-    compatible = _inputs_are_compatible(ffmpeg_path, input_paths)
+    # Probe all files for their durations so we can compute a progress denominator.
+    # Title frames each contribute _TITLE_DURATION seconds to the total.
+    _TITLE_DURATION = 1.0
+    durations: list[float] = []
+    for inp in input_paths:
+        try:
+            durations.append(probe_video(ffmpeg_path, inp)["duration"])
+        except Exception:
+            durations.append(0.0)
+    total_seconds = sum(durations) + len(input_paths) * _TITLE_DURATION
+    if total_seconds <= 0.0:
+        total_seconds = 1.0   # guard against degenerate input
 
-    # When stream-copying we need to know the codecs to match in title frames.
-    if compatible:
-        ref = _probe_streams(ffmpeg_path, input_paths[0])
-        vcodec = ref["vcodec"]
-        acodec = ref["acodec"]         # str or None
-        has_audio = acodec is not None
-    else:
-        # Re-encode path: normalise everything to libx264 + aac.
-        vcodec = "libx264"
-        acodec = "aac"
-        has_audio = True
+    completed_seconds = 0.0
+    _report(0.0)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
         segment_files: list[Path] = []
 
         for idx, inp in enumerate(input_paths):
-            # Title frame — encoded to match the input format exactly.
+            file_duration = durations[idx]
+
+            # Title frame — libx264/aac to match the re-encoded segments.
             frame_path = tmp / f"title_{idx:04d}.mp4"
             _make_text_frame(
                 ffmpeg_path, inp.name,
                 width=width, height=height, fps=fps,
                 out_path=frame_path,
-                vcodec=vcodec,
-                acodec=acodec or "aac",
-                audio=has_audio,
+                duration=_TITLE_DURATION,
+                vcodec="libx264",
+                acodec="aac",
+                audio=True,
             )
+            completed_seconds += _TITLE_DURATION
+            _report(completed_seconds / total_seconds)
             segment_files.append(frame_path)
 
-            if compatible:
-                # Stream-copy: use the original file directly.
-                segment_files.append(inp)
-            else:
-                # Re-encode to the normalised format.
-                seg_path = tmp / f"part_{idx:04d}.mp4"
-                _extract_segment(
-                    ffmpeg_path, inp, 0.0,
-                    probe_video(ffmpeg_path, inp)["duration"],
-                    seg_path,
-                    width=width, height=height, fps=fps,
-                )
-                segment_files.append(seg_path)
+            # Re-encode the input to the normalised format.
+            seg_path = tmp / f"part_{idx:04d}.mp4"
+            base_completed = completed_seconds
 
+            def _seg_cb(elapsed: float, _base: float = base_completed) -> None:
+                _report((_base + elapsed) / total_seconds)
+
+            _extract_segment(
+                ffmpeg_path, inp, 0.0,
+                file_duration,
+                seg_path,
+                width=width, height=height, fps=fps,
+                segment_progress_cb=_seg_cb,
+            )
+            completed_seconds += file_duration
+            _report(completed_seconds / total_seconds)
+            segment_files.append(seg_path)
+
+        # Final stitch — stream-copy of all re-encoded segments (fast).
+        _report(0.99)
         _concat_segments(ffmpeg_path, segment_files, output_path)
+        _report(1.0)
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+_FFMPEG_TIME_RE = re.compile(r"time=(\d+):(\d{2}):(\d{2}\.\d+)")
+
 
 def _run(cmd: list[str]) -> None:
     """Run an FFmpeg command, raising RuntimeError on failure."""
@@ -532,4 +503,54 @@ def _run(cmd: list[str]) -> None:
             f"FFmpeg command failed (exit {result.returncode}):\n"
             f"Command: {' '.join(cmd)}\n"
             f"Stderr: {result.stderr[-2000:]}"
+        )
+
+
+def _run_with_progress(
+    cmd: list[str],
+    segment_progress_cb: Callable[[float], None],
+) -> None:
+    """Run an FFmpeg command, streaming stderr and calling segment_progress_cb.
+
+    segment_progress_cb is called with the number of seconds that FFmpeg has
+    processed so far (parsed from its ``time=HH:MM:SS.ss`` progress lines).
+    The callback is invoked from the worker thread; callers are responsible for
+    any thread-safety requirements (e.g. marshalling to the GUI thread).
+
+    Raises RuntimeError on non-zero exit code, same as _run().
+    """
+    proc = subprocess.Popen(
+        cmd,
+        stderr=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        text=True,
+    )
+    assert proc.stderr is not None  # always set when stderr=subprocess.PIPE
+    stderr_buf: list[str] = []
+    # FFmpeg writes progress to stderr separated by \r (same line) or \n.
+    # Read character-by-character so we react to \r without waiting for \n.
+    chunk = ""
+    while True:
+        ch = proc.stderr.read(1)
+        if not ch:
+            break
+        if ch in ("\r", "\n"):
+            if chunk:
+                stderr_buf.append(chunk)
+                m = _FFMPEG_TIME_RE.search(chunk)
+                if m:
+                    h, mn, s = int(m.group(1)), int(m.group(2)), float(m.group(3))
+                    segment_progress_cb(h * 3600 + mn * 60 + s)
+                chunk = ""
+        else:
+            chunk += ch
+    if chunk:
+        stderr_buf.append(chunk)
+    proc.wait()
+    if proc.returncode != 0:
+        stderr_tail = "\n".join(stderr_buf)[-2000:]
+        raise RuntimeError(
+            f"FFmpeg command failed (exit {proc.returncode}):\n"
+            f"Command: {' '.join(cmd)}\n"
+            f"Stderr: {stderr_tail}"
         )
