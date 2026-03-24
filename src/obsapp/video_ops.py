@@ -99,6 +99,65 @@ def _ffprobe_from_ffmpeg(ffmpeg_path: str) -> str:
     raise FileNotFoundError("ffprobe not found alongside ffmpeg or on PATH")
 
 
+def _probe_streams(ffmpeg_path: str, input_path: Path) -> dict:
+    """Return codec-level stream info needed for compatibility checking.
+
+    Returns a dict with keys:
+      vcodec   – video codec name (str)
+      width    – int
+      height   – int
+      fps      – float
+      acodec   – audio codec name (str) or None if no audio stream
+    """
+    ffprobe = _ffprobe_from_ffmpeg(ffmpeg_path)
+    result = subprocess.run(
+        [ffprobe, "-v", "quiet", "-print_format", "json",
+         "-show_streams", str(input_path)],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffprobe failed:\n{result.stderr}")
+    streams = json.loads(result.stdout)["streams"]
+    vstream = next((s for s in streams if s["codec_type"] == "video"), None)
+    astream = next((s for s in streams if s["codec_type"] == "audio"), None)
+    if vstream is None:
+        raise RuntimeError(f"No video stream found in {input_path}")
+    fps_raw = vstream.get("avg_frame_rate") or vstream.get("r_frame_rate", "10/1")
+    num, den = fps_raw.split("/")
+    fps = float(num) / float(den) if float(den) else 10.0
+    return {
+        "vcodec": vstream["codec_name"],
+        "width":  int(vstream["width"]),
+        "height": int(vstream["height"]),
+        "fps":    fps,
+        "acodec": astream["codec_name"] if astream else None,
+    }
+
+
+def _inputs_are_compatible(ffmpeg_path: str, input_paths: list[Path]) -> bool:
+    """Return True iff all input files share the same video codec, resolution,
+    fps, and audio codec (or all have no audio).
+
+    When True, concatenate() can stream-copy inputs instead of re-encoding.
+    When False (including on probe errors), fall back to re-encoding.
+    """
+    try:
+        infos = [_probe_streams(ffmpeg_path, p) for p in input_paths]
+    except Exception:
+        return False
+    ref = infos[0]
+    for info in infos[1:]:
+        if info["vcodec"] != ref["vcodec"]:
+            return False
+        if info["width"] != ref["width"] or info["height"] != ref["height"]:
+            return False
+        if abs(info["fps"] - ref["fps"]) > 0.01:
+            return False
+        if info["acodec"] != ref["acodec"]:
+            return False
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Time parsing / formatting
 # ---------------------------------------------------------------------------
@@ -270,7 +329,13 @@ def _extract_segment(
         "-ss", f"{start:.3f}",
         "-i", str(input_path),
         "-t", f"{duration:.3f}",
-        "-vf", f"scale={width}:{height},fps={fps:.3f}",
+        "-vf", (
+            # Scale to fit within target dimensions preserving aspect ratio,
+            # then pad to exact target size with black bars (letterbox/pillarbox).
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,"
+            f"fps={fps:.3f}"
+        ),
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-c:a", "aac", "-b:a", "128k",
         "-movflags", "+faststart",
@@ -287,25 +352,53 @@ def _make_text_frame(
     height: int,
     fps: float,
     out_path: Path,
-    duration: float = 1.0,
+    duration: float = 2.0,
+    vcodec: str = "libx264",
+    acodec: str = "aac",
+    audio: bool = False,
 ) -> None:
-    """Generate a 1-second white frame with large black centred text."""
+    """Generate a white frame with large black text.
+
+    Text is centred when it fits within the frame width (minus 10% margins).
+    When it overflows, it is right-aligned so the tail (most informative part)
+    is always visible and the front is clipped off the left edge.
+
+    When audio=True a silent audio track is added using acodec, so the frame
+    is compatible with audio-bearing input segments in the concat demuxer.
+    """
     # Escape text for FFmpeg drawtext filter.
     safe_text = text.replace("'", "\\'").replace(":", "\\:")
     fontsize = max(24, height // 12)
-    cmd = [
-        ffmpeg_path, "-y",
+    margin = int(width * 0.10)
+    available = width - 2 * margin
+    # 0.6 × fontsize is a conservative character-width approximation.
+    if len(text) * fontsize * 0.6 <= available:
+        x_expr = "(w-text_w)/2"           # fits: centre it
+    else:
+        x_expr = f"{width - margin}-text_w"  # overflows: right-align, front clips
+    cmd = [ffmpeg_path, "-y"]
+    # Video source: white colour card.
+    cmd += [
         "-f", "lavfi",
         "-i", f"color=white:size={width}x{height}:rate={fps:.3f}:duration={duration}",
+    ]
+    if audio:
+        # Silent audio source matching common OBS recording parameters.
+        cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
+    cmd += [
         "-vf", (
             f"drawtext=text='{safe_text}':fontcolor=black:fontsize={fontsize}"
-            f":x=(w-text_w)/2:y=(h-text_h)/2"
+            f":x={x_expr}:y=(h-text_h)/2"
         ),
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-        "-an",
-        "-movflags", "+faststart",
-        str(out_path),
+        "-c:v", vcodec,
     ]
+    if vcodec == "libx264":
+        cmd += ["-preset", "fast", "-crf", "23"]
+    if audio:
+        cmd += ["-c:a", acodec, "-shortest"]
+    else:
+        cmd += ["-an"]
+    cmd += ["-movflags", "+faststart", str(out_path)]
     _run(cmd)
 
 
@@ -349,9 +442,8 @@ def validate_concat_inputs(
 ) -> list[str]:
     """Return a list of error strings (empty = all OK).
 
-    Checks: all files exist.  (Resolution/codec/fps compatibility is checked
-    later in concatenate() by probing; we normalise to a common format anyway,
-    so we only validate existence here.)
+    Checks: all files exist.  Format compatibility is checked inside
+    concatenate() and determines whether inputs are stream-copied or re-encoded.
     """
     errors = []
     for p in input_paths:
@@ -368,39 +460,62 @@ def concatenate(
     """Concatenate videos, inserting a 1-second title frame before each part.
 
     The title frame shows the filename (not the full path) of the upcoming part.
-    All inputs are re-encoded to a common resolution/fps (the first file's settings).
+
+    If all inputs share the same video codec, resolution, fps, and audio codec,
+    they are stream-copied (no re-encoding).  Otherwise all inputs are re-encoded
+    to a common format based on the first file's settings.
     """
     if not input_paths:
         raise ValueError("No input files provided")
 
-    # Probe the first file to get target resolution and fps.
+    # Probe the first file for target resolution/fps and decide copy vs re-encode.
     info = probe_video(ffmpeg_path, input_paths[0])
     width, height, fps = info["width"], info["height"], info["fps"]
+
+    compatible = _inputs_are_compatible(ffmpeg_path, input_paths)
+
+    # When stream-copying we need to know the codecs to match in title frames.
+    if compatible:
+        ref = _probe_streams(ffmpeg_path, input_paths[0])
+        vcodec = ref["vcodec"]
+        acodec = ref["acodec"]         # str or None
+        has_audio = acodec is not None
+    else:
+        # Re-encode path: normalise everything to libx264 + aac.
+        vcodec = "libx264"
+        acodec = "aac"
+        has_audio = True
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
         segment_files: list[Path] = []
 
         for idx, inp in enumerate(input_paths):
-            # Title frame.
-            title_text = inp.name
+            # Title frame — encoded to match the input format exactly.
             frame_path = tmp / f"title_{idx:04d}.mp4"
             _make_text_frame(
-                ffmpeg_path, title_text,
+                ffmpeg_path, inp.name,
                 width=width, height=height, fps=fps,
                 out_path=frame_path,
+                vcodec=vcodec,
+                acodec=acodec or "aac",
+                audio=has_audio,
             )
             segment_files.append(frame_path)
 
-            # Re-encode the input to a normalised format.
-            seg_path = tmp / f"part_{idx:04d}.mp4"
-            _extract_segment(
-                ffmpeg_path, inp, 0.0,
-                probe_video(ffmpeg_path, inp)["duration"],
-                seg_path,
-                width=width, height=height, fps=fps,
-            )
-            segment_files.append(seg_path)
+            if compatible:
+                # Stream-copy: use the original file directly.
+                segment_files.append(inp)
+            else:
+                # Re-encode to the normalised format.
+                seg_path = tmp / f"part_{idx:04d}.mp4"
+                _extract_segment(
+                    ffmpeg_path, inp, 0.0,
+                    probe_video(ffmpeg_path, inp)["duration"],
+                    seg_path,
+                    width=width, height=height, fps=fps,
+                )
+                segment_files.append(seg_path)
 
         _concat_segments(ffmpeg_path, segment_files, output_path)
 
