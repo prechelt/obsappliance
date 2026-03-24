@@ -105,125 +105,58 @@ OBSapp shuts down OBS (if running) and terminates.
 
 
 
-## 2. Non-functional requirements
+## 2. Non-functional properties
 
-- Must work on Windows 11, macOS, Linux (those distros that SW developers tend to have)
+- Works on Windows 11, macOS, Linux (those distros that SW developers tend to have)
 - Nothing ever requires superuser rights
-- Installation is into the user's home directory
-- Must present a desktop GUI for config and for pause/unpause/stop
-- Recording should consume only modest amounts of CPU and memory so as not to disturb the human's work;
-  15% CPU is OK, 30% is too much.
-- Text in the recording must be legible even if it is visible only shortly (0.4 sec)
-- Smooth movement is unimportant. A frame rate of 5 to 10 fps is sufficient.
-- Distribution is via the GitHub repo or perhaps a GitHub release
-- The entire installation should be a single file tree in $HOME and should be readily movable
-  (i.e. use only relative paths internally).
+- Recording consumes only modest amounts of CPU and memory so as not to disturb the human's work.
+  In particular, the frame rate is 5 to 10 fps because smooth movement is unimportant.
+- The entire installation is a single file tree in $HOME and is readily movable
+  (i.e. uses only relative paths internally).
 
 
-## 3. Technology selection
+## 3. Architecture and Base Technology
 
-1. Consider if there is a sensible alternative to OBS Studio 
-2. Installation ("bootstrap") on Linux and macOS could be in the `curl someurl | bash` style.
-   Is there a better way?
-3. Installation on Windows: Can it be done by a similar single command in PowerShell?
-   If not, should we go for an executable or a PowerShell script for the installer? Why?
-4. Any ideas for minimizing the amount of redundancy between the Windows and the macOS/Linux install script?
-5. On Windows, can we avoid requiring WSL easily?
-6. For the GUI I can think of Python/tkinter or Electron.
-   Any other sensible possibility that is lightweight and uses mainstream building blocks?
-   Which of the two might we prefer and why?
-   My JS skills are minimal, my Python skills good, so I might lean towards Python.
-   However, a tkinter GUI will look very oldfashioned, right? Is that avoidable?
-   On the other hand, Electron is going to be very heavyweight, correct? Is that a problem?
-7. Is OBS Studio's Python scripting useful for building the GUI? 
-   Or for simplifying building it (e.g. accessing the device lists)?
-   Then we might face a Python download in any case -- unless we use Lua instead.
-   Can we use Lua? Should we? Again, present arguments and tradeoffs.
-8. How will the actual OBS control be realized? I guess the config (device selection) can be written
-   into a file? How will start/stop/pause/unpause be transmitted to OBS Studio?
-
-Decisions:
-
-1. **OBS Studio** — FFmpeg-only would save download size but adds substantial complexity
-   (pause/resume, hardware encoder detection, platform-specific screen enumeration).
-   OBS provides all of that out of the box. Webcam overlay is dropped from requirements.
-2. **`curl <url> | bash`** for Linux/macOS bootstrap. Standard approach for developer tools.
-3. **`irm <url> | iex`** (PowerShell) for Windows bootstrap. Same pattern, no need for an .exe installer.
-4. **Two parallel scripts** (`install.sh` + `install.ps1`) with the same logical structure.
-   Shared configuration (URLs, versions) in a small JSON file that both scripts read.
-5. **No WSL required.** OBS, Python, and PowerShell all run natively on Windows.
-6. **Python + CustomTkinter** for the GUI. Modern look, lightweight (~1 MB on top of Python),
-   matches developer's Python skills. Electron rejected as too heavyweight (~150 MB+).
-7. **No OBS scripting for the GUI.** OBS scripts run inside OBS and can't build standalone windows.
-   Use **obs-websocket** (built into OBS 28+) for all communication between GUI and OBS.
-   A small Lua script inside OBS may help with device enumeration if the websocket API falls short.
-8. **obs-websocket** for runtime control (`StartRecord`, `StopRecord`, `PauseRecord`, `ResumeRecord`,
-   `GetInputList`, etc.) via the `obsws-python` library. Device/scene configuration is written
-   as OBS scene collection JSON files placed in OBS's portable config directory before launch.
+- **Installation** — bootstrap scripts (`install.sh` for Linux/macOS, `install.ps1` for Windows)
+  download a portable OBS Studio (if needed), FFmpeg (if needed), Python (if needed), 
+  and the OBSapp package (always)
+  into a single directory tree in the user's home directory. No superuser rights required.
+- **obsappliance** is a small Python application with a desktop GUI that glues together the
+  powerful capabilities of OBS Studio (video recording) and FFmpeg (video file handling).
+- **OBS Studio** — used as the recording engine (screen capture, mic/webcam input,
+  hardware encoder detection, pause/resume). Requires OBS V30 or newer.
+- **FFmpeg** — used for video editing (censor, concatenate, text-frame generation).
+- **CustomTkinter** — Python GUI toolkit providing a modern look on all platforms.
+- **obs-websocket** — built into OBS 28+, used for all runtime control
+  (`StartRecord`, `StopRecord`, `PauseRecord`, `ResumeRecord`, `GetInputList`, etc.)
+  via the `obsws-python` library. Runs on `localhost:4455` with no password.
 
 
-## 4. Architecture
-
-### 4.1 Video processing
-
-OBS is a recording/streaming engine, not a video editor.
-Concatenation and censoring (cutting segments, generating text frames, reassembling)
-require **FFmpeg**. OBS bundles an FFmpeg binary on all platforms;
-we use that and fall back to a separate FFmpeg download if needed.
-
-### 4.2 Module structure
-
-```
-obsapp/
-  main.py                — entry point, app lifecycle
-  gui/
-    __init__.py
-    main_menu.py         — main menu screen
-    record_dialog.py     — record config dialog + recording controls (Pause/Resume, Stop)
-    censor_dialog.py     — censor dialog
-    concat_dialog.py     — concatenate dialog
-    widgets.py           — shared GUI helpers (message boxes, file choosers, validation display)
-  obs_control.py         — OBS process lifecycle, websocket connection, record/pause/stop commands
-  video_ops.py           — FFmpeg operations: censor, concatenate, text-frame generation
-  config.py              — JSON persistence of user settings (defaults for record dialog)
-```
-
-### 4.3 Dependencies between modules
-
-```
-main.py → gui/*          (drives the GUI)
-gui/*   → obs_control    (record_dialog calls start/pause/stop)
-gui/*   → video_ops      (censor_dialog, concat_dialog call FFmpeg operations)
-gui/*   → config         (record_dialog reads/writes defaults)
-gui/*   → widgets        (all dialogs use shared helpers)
-```
-
-`obs_control`, `video_ops`, and `config` do not depend on each other or on `gui`.
-
-### 4.4 Configuration
+## 4. Configuration
 
 `main.py` is called with a single argument, an `.ini` config file.
 Its directory is the obsapp directory.
-The OBS config file that obsapp creates dynamically will live in it.
+The OBS config files that obsapp creates dynamically will live in it.
 Python, the Python venv, and OBS Studio may live in that directory or elsewhere.
 Here is an example how it may look in an installed version of obsapp:
 ```ini
 [obsappliance]
-obsstudio_dir=./obsstudio
+obs_executable=./obsstudio/bin/64bit/obs64.exe
+ffmpeg_executable=C:\sw\ffmpeg20260323\bin\ffmpeg.exe
 venv_dir=./venv
+# The obs_config_dir will be the 'obs-config' subdirectory of the present file's location.
 ```
 When obsapp starts, it immediately changes into the obsapp directory, so that the config file
 can use relative paths, so that the obsapp directory can be relocated easily.
 
-Here is a variant for a development setup on Windows where both parts are in a standard place:
+Here is a variant for a development setup on Windows where all parts are in a standard place:
 ```ini
 [obsappliance]
-obsstudio_dir=C:\Program Files\obs-studio
-venv_dir=c:\venv\obsapp
+obs_executable=c:/Program Files/obs-studio/bin/64bit/obs64.exe
+ffmpeg_executable=C:/sw/ffmpeg20260323/bin/ffmpeg.exe
+venv_dir=c:/venvs/obsapp
+# The obs_config_dir will be the 'obs-config' subdirectory of the present file's location.
 ```
-
-Currently, the Python code works in this manner, but the bootstrap installer still follows
-an older convention based on a fixed obsapp directory tree structure and wrapper scripts.
 
 
 ## 5. Remaining larger development steps
@@ -249,12 +182,5 @@ To do:
 
 ### 6. Next development steps
 
-Revise the decision to have `obsstudio_dir` as the single key config variable:
-- Since we need a separate ffmpeg anyway (because Windows OBS does not bring an ffmpeg executable),
-  we should revise the architectural decision of having only the `obsstudio_dir` conf variable.
-  On Linux, a system-installed OBS will not come as the same directory tree as in Windows,
-  so we should have a separate config variable for each OBS item of interest (config file(s)?; 
-  executable; what else?). List these and suggest config variable names. Let me decide.
-- Adapt all related spots in the codebase that so far rely on `obsstudio_dir`.
-- Add a config variable `ffmpeg_executable` and simplify `find_ffmpeg()` accordingly.
+...
 
