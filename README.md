@@ -1,6 +1,7 @@
 # OBS Appliance (OBSapp)
 
 A few-click appliance to easily screen-record your desktop work locally with Open Broadcaster Software (OBS).
+We use recent versions of OBS (V.30 or younger).
 
 Still in early development and not ready for use.
 
@@ -221,10 +222,39 @@ obsstudio_dir=C:\Program Files\obs-studio
 venv_dir=c:\venv\obsapp
 ```
 
+Currently, the Python code works in this manner, but the bootstrap installer still follows
+an older convention based on a fixed obsapp directory tree structure and wrapper scripts.
 
-## 5. Next development step
 
-Functionality 2a ("Record") is implemented.
-Use the OBS indicated in the .ini file.
-Test recording on a desktop system (Linux, Windows, or macOS) with OBS Studio installed.
-Then implement 2b ("Censor video") and 2c ("Concatenate videos").
+## 5. Remaining larger development steps
+
+Initialize development from a `pwsh` by
+```
+cd c:/ws/gh/obsappliance
+c:\venv\obsapp\Scripts\Activate.ps1
+```
+and then either `\sw\opencode\opencode` for agentic work or the following for testing
+```
+& 'C:\Program Files\Git\bin\bash.exe'
+PYTHONPATH=src python -m obsapp.main tmp_obsappdir/obsapp-config.ini
+```
+
+To do:
+- Get "concatenate" functionality to work
+- Get "censor" functionality to work
+- Revise the installer to use obsapp-config.ini rather than the current fixed directory-shape convention.
+- Test on Linux
+- Test on macOS
+
+
+### 6. Next development steps
+
+Revise the decision to have `obsstudio_dir` as the single key config variable:
+- Since we need a separate ffmpeg anyway (because Windows OBS does not bring an ffmpeg executable),
+  we should revise the architectural decision of having only the `obsstudio_dir` conf variable.
+  On Linux, a system-installed OBS will not come as the same directory tree as in Windows,
+  so we should have a separate config variable for each OBS item of interest (config file(s)?; 
+  executable; what else?). List these and suggest config variable names. Let me decide.
+- Adapt all related spots in the codebase that so far rely on `obsstudio_dir`.
+- Add a config variable `ffmpeg_executable` and simplify `find_ffmpeg()` accordingly.
+
