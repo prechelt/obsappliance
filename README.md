@@ -159,7 +159,7 @@ venv_dir=c:/venvs/obsapp
 ```
 
 
-## 5. Remaining larger development steps
+## 5. Remaining future development steps
 
 Initialize development from a `pwsh` by
 ```
@@ -172,8 +172,14 @@ and then either `\sw\opencode\opencode` for agentic work or the following for te
 PYTHONPATH=src python -m obsapp.main tmp_obsappdir/obsapp-config.ini
 ```
 
-To do:
+Steps to do:
 - Get "concatenate" functionality to work
+- Let Cancel buttons react to ESC
+- Let confirmation buttons react to RETURN
+- Let TAB in textareas mean "go to next GUI element"
+- Window title should mention op name
+- Determine window sizes in the natural manner: based on content sizes.
+- _make_text_frame(): make the font scaling work, it currently does not scale down long filenames.
 - Get "censor" functionality to work
 - Revise the installer to use obsapp-config.ini rather than the current fixed directory-shape convention.
 - Test on Linux
