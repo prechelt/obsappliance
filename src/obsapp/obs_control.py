@@ -3,7 +3,6 @@
 import configparser
 import json
 import logging
-import os
 import subprocess
 import sys
 import time
@@ -45,10 +44,17 @@ _WS_PORT = 4455
 
 
 class OBSController:
-    def __init__(self, obsappdir: Path):
-        self.obsappdir = obsappdir
-        self.obs_dir = obsappdir  # kept for callers; obsappdir IS the obs dir
-        self._obs_exe: str | None = None
+    def __init__(self, obs_executable: str, obs_config_dir: Path):
+        """Create a controller for OBS Studio.
+
+        obs_executable: path to (or name of) the OBS binary, e.g.
+            "C:/Program Files/obs-studio/bin/64bit/obs64.exe" or "obs".
+        obs_config_dir: directory where OBSapp writes OBS profile/scene/
+            websocket config.  Passed to OBS via --profile-path so the
+            installation is self-contained and relocatable.
+        """
+        self._obs_exe: str = obs_executable
+        self.obs_config_dir: Path = obs_config_dir
         self._process: subprocess.Popen | None = None
         self.ws: obsws.ReqClient | None = None
         self._platform = "linux" if sys.platform.startswith("linux") else sys.platform
@@ -65,12 +71,16 @@ class OBSController:
         """Start OBS (if needed) and connect the websocket."""
         if self.ws is not None:
             return
-        obs_exe = self._find_obs_executable()
         self._ensure_obs_config()
         self._process = subprocess.Popen(
-            [obs_exe, "--minimize-to-tray",
-             "--collection", "OBSapp", "--profile", "OBSapp"],
-            cwd=str(Path(obs_exe).parent),
+            [
+                self._obs_exe,
+                "--minimize-to-tray",
+                "--collection", "OBSapp",
+                "--profile", "OBSapp",
+                "--profile-path", str(self.obs_config_dir),
+            ],
+            cwd=str(Path(self._obs_exe).parent) if Path(self._obs_exe).is_absolute() else None,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -275,35 +285,9 @@ class OBSController:
 
     # ── private helpers ───────────────────────────────────────────────
 
-    def _find_obs_executable(self) -> str:
-        if self._obs_exe is not None:
-            return self._obs_exe
-        if self._platform == "win32":
-            progfiles = os.environ.get("ProgramFiles", r"C:\Program Files")
-            system = Path(progfiles) / "obs-studio" / "bin" / "64bit" / "obs64.exe"
-            if system.exists():
-                self._obs_exe = str(system)
-                return self._obs_exe
-            raise FileNotFoundError("OBS Studio not found")
-        if self._platform == "darwin":
-            app = Path("/Applications/OBS.app/Contents/MacOS/OBS")
-            if app.exists():
-                self._obs_exe = str(app)
-                return self._obs_exe
-            raise FileNotFoundError("OBS Studio not found")
-        # linux – assume 'obs' is in PATH
-        self._obs_exe = "obs"
-        return self._obs_exe
-
     def _obs_config_path(self) -> Path:
-        """Standard per-user OBS config directory (no --portable flag used)."""
-        if self._platform == "win32":
-            appdata = os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))
-            return Path(appdata) / "obs-studio"
-        elif self._platform == "darwin":
-            return Path.home() / "Library" / "Application Support" / "obs-studio"
-        else:
-            return Path.home() / ".config" / "obs-studio"
+        """OBS config directory used by this OBSapp installation."""
+        return self.obs_config_dir
 
     def _ensure_obs_config(self) -> None:
         """Create/update OBS config files before launching OBS."""

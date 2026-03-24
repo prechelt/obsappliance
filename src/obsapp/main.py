@@ -18,6 +18,9 @@ from .gui.record_dialog import RecordDialogFrame, RecordingFrame
 from .gui.widgets import PADDING, show_message
 from .obs_control import OBSController
 
+# Name of the OBS config subdirectory inside the obsapp directory.
+_OBS_CONFIG_SUBDIR = "obs-config"
+
 
 def _read_config(inifile: str) -> dict:
     """Parse the given .ini file and return its entries as a flat dict."""
@@ -34,12 +37,15 @@ def _read_config(inifile: str) -> dict:
 
 
 class App(ctk.CTk):
-    def __init__(self, cfg: dict) -> None:
+    def __init__(self, cfg: dict, obs_config_dir: Path) -> None:
         super().__init__()
         self.title("OBSapp")
-        self.obsstudio_dir = Path(cfg["obsstudio_dir"])
+        self.ffmpeg_executable: str = cfg["ffmpeg_executable"]
 
-        self.obs = OBSController(self.obsstudio_dir)
+        self.obs = OBSController(
+            obs_executable=cfg["obs_executable"],
+            obs_config_dir=obs_config_dir,
+        )
         self.config_store = ConfigStore(Path("obsapp_settings.json"))
 
         self._current_frame: ctk.CTkFrame | None = None
@@ -103,12 +109,17 @@ def main() -> None:
     if len(sys.argv) < 2:
         sys.exit("Error: expected a .ini file as the first argument.")
     cfg = _read_config(sys.argv[1])
-    if "obsstudio_dir" not in cfg:
-        sys.exit("Error: 'obsstudio_dir' entry missing from the .ini file.")
+    missing = [k for k in ("obs_executable", "ffmpeg_executable") if k not in cfg]
+    if missing:
+        sys.exit(
+            "Error: the following entries are missing from the .ini file: "
+            + ", ".join(missing)
+        )
+    obs_config_dir = Path(sys.argv[1]).resolve().parent / _OBS_CONFIG_SUBDIR
     os.chdir(Path(sys.argv[1]).resolve().parent)
     ctk.set_appearance_mode("system")
     ctk.set_default_color_theme("blue")
-    app = App(cfg=cfg)
+    app = App(cfg=cfg, obs_config_dir=obs_config_dir)
     try:
         app.mainloop()
     finally:

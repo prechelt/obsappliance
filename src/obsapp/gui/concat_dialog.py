@@ -148,7 +148,7 @@ class ConcatDialogFrame(ctk.CTkFrame):
             return
 
         try:
-            ffmpeg = find_ffmpeg(self.app.obsstudio_dir)
+            ffmpeg = find_ffmpeg(self.app.ffmpeg_executable)
         except Exception as exc:
             show_message(self, "Error", str(exc))
             return

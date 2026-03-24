@@ -3,9 +3,8 @@
 All operations write to a sibling output file (e.g. "foo-censored.mp4" or
 "foo-concat.mp4") and never touch the original.
 
-FFmpeg is located in this order:
-  1. OBS bundle  (<obsstudio_dir>/bin/ffmpeg or <obsstudio_dir>/bin/64bit/ffmpeg)
-  2. System PATH
+FFmpeg is specified via the ffmpeg_executable config variable in obsapp-config.ini.
+It may be an absolute path or a bare name resolved via PATH (e.g. "ffmpeg").
 """
 
 from __future__ import annotations
@@ -22,41 +21,28 @@ from pathlib import Path
 # FFmpeg discovery
 # ---------------------------------------------------------------------------
 
-def find_ffmpeg(obsstudio_dir: Path | None = None) -> str:
-    """Return path to an ffmpeg executable, raising FileNotFoundError if none found."""
-    candidates: list[Path] = []
+def find_ffmpeg(ffmpeg_executable: str) -> str:
+    """Validate and return the ffmpeg executable path.
 
-    if obsstudio_dir is not None:
-        # OBS bundles ffmpeg inside its binary dirs on all platforms.
-        if sys.platform == "win32":
-            candidates += [
-                obsstudio_dir / "bin" / "64bit" / "ffmpeg.exe",
-                obsstudio_dir / "bin" / "ffmpeg.exe",
-            ]
-        elif sys.platform == "darwin":
-            candidates += [
-                obsstudio_dir / "Frameworks" / "ffmpeg",
-                obsstudio_dir / "ffmpeg",
-            ]
-        else:
-            candidates += [
-                obsstudio_dir / "bin" / "ffmpeg",
-                obsstudio_dir / "ffmpeg",
-            ]
-
-    for c in candidates:
-        if c.exists():
-            return str(c)
-
-    # Fall back to PATH.
+    ffmpeg_executable may be an absolute path or a bare name (e.g. "ffmpeg")
+    that will be resolved via the system PATH.
+    Raises FileNotFoundError if the executable cannot be found.
+    """
     import shutil
-    exe = shutil.which("ffmpeg")
+    p = Path(ffmpeg_executable)
+    if p.is_absolute():
+        if p.exists():
+            return str(p)
+        raise FileNotFoundError(
+            f"ffmpeg not found at configured path: {ffmpeg_executable}"
+        )
+    # Bare name or relative path: try PATH resolution.
+    exe = shutil.which(ffmpeg_executable)
     if exe:
         return exe
-
     raise FileNotFoundError(
-        "ffmpeg not found.  Install FFmpeg or place OBS Studio's bundled "
-        "ffmpeg on PATH."
+        f"ffmpeg executable {ffmpeg_executable!r} not found on PATH.  "
+        "Install FFmpeg or set ffmpeg_executable to an absolute path in obsapp-config.ini."
     )
 
 

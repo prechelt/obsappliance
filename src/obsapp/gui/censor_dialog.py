@@ -109,7 +109,7 @@ class CensorDialogFrame(ctk.CTkFrame):
 
         # Probe video to get duration.
         try:
-            ffmpeg = find_ffmpeg(self.app.obsstudio_dir)
+            ffmpeg = find_ffmpeg(self.app.ffmpeg_executable)
             info = probe_video(ffmpeg, input_path)
         except Exception as exc:
             show_message(self, "Error", f"Could not probe video:\n{exc}")
