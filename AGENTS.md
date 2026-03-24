@@ -204,9 +204,17 @@ raise FileNotFoundError("OBS Studio not found in Program Files")
   realized widget (font metrics, `winfo_reqheight`, etc.).
 - When calling `app.minsize(w, h)` always pass **both** arguments; CTk's
   override crashes on `None` comparisons if one is omitted.
-- `font.measure()` returns **screen pixels** (DPI-scaled).  CTk `minsize()`
-  takes **logical pixels**.  Divide by `app._get_window_scaling()` before
-  passing to `minsize`.
+- **All `winfo_*` geometry queries return screen pixels (DPI-scaled).**
+  `geometry()` and `minsize()` take logical pixels.
+  Always divide by `app._get_window_scaling()` before passing any
+  `winfo_reqwidth()`, `winfo_reqheight()`, or `font.measure()` result to
+  `geometry()` or `minsize()`.
+- Call `app.update_idletasks()` before reading `winfo_reqheight()` inside an
+  `after(0, ...)` callback: CTk widgets resize their internal canvases as idle
+  tasks, so the value is stale until those tasks have run.
+- Use `frame.winfo_reqheight()` — **not** `app.winfo_reqheight()` — to measure
+  a frame's natural height: the root window's geometry lags at least one layout
+  pass behind the current frame even after `update_idletasks()`.
 - `tk.Text` used as a label: set `font="TkDefaultFont"` explicitly (avoids
   the `TkFixedFont`/Courier default), derive background from
   `self.winfo_toplevel().cget("background")` (not `self.master`).

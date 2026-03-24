@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import customtkinter as ctk
 
-from .widgets import PADDING, MarkupLabel, setup_keyboard_nav, show_message
+from .widgets import PADDING, MarkupLabel, fit_window, setup_keyboard_nav, show_message
 
 if TYPE_CHECKING:
     from ..main import App
@@ -57,14 +57,12 @@ class MainMenuFrame(ctk.CTkFrame):
         self.after(0, lambda: self._action_menu._canvas.focus_set())
 
     def _fit_width_to_explanation(self) -> None:
-        """Set window minsize so no line in the explanation wraps."""
+        """Resize window to fit the widest explanation line plus padding."""
         longest_screen_px = self._explanation_label.longest_line_px()
-        # font.measure() returns screen pixels; CTk minsize() takes logical
-        # pixels (it multiplies by the window scaling factor internally).
+        # font.measure() returns screen pixels; fit_window() takes logical pixels.
         scaling = self.app._get_window_scaling()
         min_w = int(longest_screen_px / scaling) + 2 * PADDING
-        min_h = self.app.winfo_reqheight()
-        self.app.minsize(min_w, min_h)
+        fit_window(self.app, self, min_w)
 
     def _on_action(self, choice: str) -> None:
         self._action_var.set("Select action...")  # reset for next time

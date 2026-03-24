@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import customtkinter as ctk
 
-from .widgets import PADDING, ask_confirmation, choose_save_file, fix_textbox_tab, setup_keyboard_nav, show_message
+from .widgets import PADDING, ask_confirmation, choose_save_file, fit_window, fix_textbox_tab, setup_keyboard_nav, show_message
 
 if TYPE_CHECKING:
     from ..main import App
@@ -117,14 +117,13 @@ class RecordDialogFrame(ctk.CTkFrame):
     # ── callbacks ─────────────────────────────────────────────────────
 
     def _set_min_width_for_entry(self) -> None:
-        """Set window minsize so the target-file entry displays 60 characters."""
+        """Resize window so the target-file entry displays 60 characters."""
         from tkinter.font import Font
         # Derive the entry font from CTk's configured default (same family/size
         # as every CTk widget) without touching any private CTk internals.
         _ctk_font = ctk.CTkFont()
         font = Font(family=_ctk_font.actual("family"), size=_ctk_font.cget("size"))
-        # font.measure() returns screen pixels; CTk minsize() takes logical
-        # pixels (it multiplies by the window scaling factor internally).
+        # font.measure() returns screen pixels; fit_window() takes logical pixels.
         scaling = self.app._get_window_scaling()
         char_w = font.measure("0")
         entry_target_w = int(char_w * 60 / scaling)
@@ -132,8 +131,7 @@ class RecordDialogFrame(ctk.CTkFrame):
         browse_w = 80
         browse_padx = 5
         min_w = entry_target_w + browse_w + browse_padx + 2 * PADDING
-        min_h = self.app.winfo_reqheight()
-        self.app.minsize(min_w, min_h)
+        fit_window(self.app, self, min_w)
 
     def _browse(self) -> None:
         path = choose_save_file(self)
@@ -215,6 +213,11 @@ class RecordingFrame(ctk.CTkFrame):
 
         setup_keyboard_nav(self._pause_btn, stop_btn)
         self.after(0, self._pause_btn.focus_set)
+        self.after(0, self._fit_to_content)
+
+    def _fit_to_content(self) -> None:
+        """Resize window to the natural size of the recording controls."""
+        fit_window(self.app, self, self.winfo_reqwidth())
 
     def _on_pause(self) -> None:
         if self._paused:

@@ -59,6 +59,11 @@ class App(ctk.CTk):
     def _show_frame(self, frame: ctk.CTkFrame, title: str = "OBSapp") -> None:
         if self._current_frame is not None:
             self._current_frame.destroy()
+        # Reset window size and minimum constraints so the incoming frame's
+        # fit_window() callback measures only its own natural content height,
+        # not the leftover geometry from the previous frame.
+        self.minsize(1, 1)
+        self.geometry("1x1")
         self._current_frame = frame
         self._current_frame.pack(fill="both", expand=True)
         self.title(title)

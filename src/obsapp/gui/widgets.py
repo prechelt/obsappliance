@@ -1,5 +1,6 @@
 """Shared GUI helpers: message boxes, file choosers, validation display."""
 
+import math
 import re
 import tkinter as tk
 from tkinter.font import Font
@@ -160,16 +161,34 @@ class MarkupLabel(tk.Text):
         lines = plain.splitlines()
         # height in lines
         self.configure(height=len(lines))
-        # width in characters: measure the longest line in pixels, convert to
-        # average character widths so Tk allocates exactly that much horizontal
-        # space.  This prevents the text widget from advertising a natural width
-        # of zero (width=1) while wrap="none" — which makes Tk expand the window
-        # to show the full unwrapped text regardless of any geometry() call.
-        font = Font(font=self.cget("font"))
-        longest_px = max((font.measure(l) for l in lines), default=0)
-        avg_char_px = font.measure("0")
-        if avg_char_px > 0:
-            self.configure(width=max(1, longest_px // avg_char_px))
+        # width in characters: measure the longest line in pixels using the
+        # correct per-run font (bold runs are wider than plain text), convert
+        # to average character widths so Tk allocates exactly that much
+        # horizontal space.  Use ceiling so a fractional remainder does not
+        # clip the last character.  This prevents the text widget advertising
+        # a natural width of zero (width=1) while wrap="none" — which makes Tk
+        # expand the window to show the full unwrapped text regardless of any
+        # geometry() call.
+        base_font   = Font(font=self.cget("font"))
+        bold_font   = Font(font=self.tag_cget("bold",   "font"))
+        italic_font = Font(font=self.tag_cget("italic", "font"))
+        avg_char_px = base_font.measure("0")
+        if avg_char_px <= 0:
+            return
+        # Measure every line using the appropriate font for each marked run.
+        def _line_px(line_text: str) -> int:
+            px = 0
+            for run, tags in _parse_markup(line_text):
+                if "bold" in tags:
+                    px += bold_font.measure(run)
+                elif "italic" in tags:
+                    px += italic_font.measure(run)
+                else:
+                    px += base_font.measure(run)
+            return px
+        markup_lines = self._markup_text.splitlines()
+        longest_px = max((_line_px(l) for l in markup_lines), default=0)
+        self.configure(width=max(1, math.ceil(longest_px / avg_char_px)))
 
     def _sync_bg(self, _event=None) -> None:
         # The CTk top-level window holds the authoritative background color.
@@ -188,6 +207,40 @@ class MarkupLabel(tk.Text):
         font = Font(font=self.cget("font"))
         plain = _plain_text(self._markup_text)
         return max((font.measure(line) for line in plain.splitlines()), default=0)
+
+
+def fit_window(app: ctk.CTk, frame: ctk.CTkFrame, min_w: int) -> None:
+    """Resize *app* to the frame's natural content height and *min_w* width.
+
+    Call this from an ``after(0, ...)`` callback so the frame is fully
+    realised before we measure it.  *min_w* is in **logical pixels** (i.e.
+    already divided by the window-scaling factor if derived from
+    ``font.measure()``).
+
+    ``update_idletasks()`` is called first so that CTk's own deferred canvas-
+    sizing callbacks (scheduled as idle tasks during widget construction) have
+    run.  Without it ``frame.winfo_reqheight()`` returns a stale low value
+    because CTkOptionMenu, CTkEntry and friends resize their internal canvases
+    lazily; the true preferred height is only known after those idle tasks fire.
+
+    ``frame.winfo_reqheight()`` is used — **not** ``app.winfo_reqheight()`` —
+    because the root window's geometry lags by at least one layout pass after
+    a frame swap, so ``app.winfo_reqheight()`` still returns the previous
+    frame's height even after ``update_idletasks()``.
+
+    Both ``winfo_reqheight()`` and ``font.measure()`` return **screen pixels**.
+    ``geometry()`` and ``minsize()`` take **logical pixels** (screen px divided
+    by the window scaling factor).  *min_w* is already in logical pixels at
+    every call site; height is converted here.
+
+    Both ``geometry()`` and ``minsize()`` are set to the same value so the
+    window has a fixed size equal to its content.
+    """
+    app.update_idletasks()
+    scaling = app._get_window_scaling()
+    h = round(frame.winfo_reqheight() / scaling)
+    app.geometry(f"{min_w}x{h}")
+    app.minsize(min_w, h)
 
 
 def show_message(parent, title: str, message: str) -> None:

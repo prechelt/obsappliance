@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import customtkinter as ctk
 from tkinter import filedialog
 
-from .widgets import PADDING, fix_textbox_tab, setup_keyboard_nav, show_message
+from .widgets import PADDING, MarkupLabel, fit_window, fix_textbox_tab, setup_keyboard_nav, show_message
 from ..video_ops import (
     find_ffmpeg,
     probe_video,
@@ -27,8 +27,8 @@ if TYPE_CHECKING:
 
 _EXPLANATION = (
     "Enter the MP4 file to edit and the time ranges you want to remove.\n"
-    "Format: M:SS-M:SS or H:MM:SS-H:MM:SS (whole seconds, one range per line).\n"
-    "Example: 0:57-1:02\n"
+    "**Format:** M:SS-M:SS or **H:MM:SS-H:MM:SS** (whole seconds, one range per line).\n"
+    "Example: **0:57-1:02**\n"
     "Each removed range is replaced by a short info frame.\n"
     "Output is written to <filename>-censored.mp4."
 )
@@ -42,12 +42,11 @@ class CensorDialogFrame(ctk.CTkFrame):
         self.app = app
 
         # ── explanation ──
-        ctk.CTkLabel(
+        self._explanation_label = MarkupLabel(
             self,
-            text=_EXPLANATION,
-            wraplength=480,
-            justify="left",
-        ).pack(anchor="w", padx=PADDING, pady=(PADDING, 10))
+            markup_text=_EXPLANATION,
+        )
+        self._explanation_label.pack(anchor="w", padx=PADDING, pady=(PADDING, 10))
 
         # ── input file row ──
         ctk.CTkLabel(self, text="MP4 file:").pack(
@@ -88,6 +87,21 @@ class CensorDialogFrame(ctk.CTkFrame):
         setup_keyboard_nav(browse_btn, self._ok_btn, cancel_btn)
         self.app.bind_all("<Escape>", lambda e: self.app.show_main_menu())
         self.after(0, self._file_entry.focus_set)
+        self.after(0, self._fit_to_entry)
+
+    # ── sizing ────────────────────────────────────────────────────────
+
+    def _fit_to_entry(self) -> None:
+        """Resize window so the file-entry shows 60 characters."""
+        from tkinter.font import Font
+        _ctk_font = ctk.CTkFont()
+        font = Font(family=_ctk_font.actual("family"), size=_ctk_font.cget("size"))
+        scaling = self.app._get_window_scaling()
+        entry_w = int(font.measure("0") * 60 / scaling)
+        browse_w = 80
+        browse_padx = 5
+        min_w = entry_w + browse_w + browse_padx + 2 * PADDING
+        fit_window(self.app, self, min_w)
 
     # ── callbacks ─────────────────────────────────────────────────────
 

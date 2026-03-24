@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import customtkinter as ctk
 from tkinter import filedialog
 
-from .widgets import PADDING, fix_textbox_tab, setup_keyboard_nav, show_message
+from .widgets import PADDING, MarkupLabel, fit_window, fix_textbox_tab, setup_keyboard_nav, show_message
 from ..video_ops import find_ffmpeg, validate_concat_inputs, concatenate
 
 if TYPE_CHECKING:
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 _EXPLANATION = (
     "Build an ordered list of MP4 files to join.\n"
     "A short title frame (showing each file's name) is inserted before each part.\n"
-    "All parts are re-encoded to match the resolution and frame rate of the first file."
+    "**Slow:** All parts are re-encoded to match the resolution and frame rate of the first file."
 )
 
 
@@ -38,12 +38,11 @@ class ConcatDialogFrame(ctk.CTkFrame):
         defaults = app.config_store.load()
 
         # ── explanation ──
-        ctk.CTkLabel(
+        self._explanation_label = MarkupLabel(
             self,
-            text=_EXPLANATION,
-            wraplength=480,
-            justify="left",
-        ).pack(anchor="w", padx=PADDING, pady=(PADDING, 10))
+            markup_text=_EXPLANATION,
+        )
+        self._explanation_label.pack(anchor="w", padx=PADDING, pady=(PADDING, 10))
 
         # ── file list (editable, scrollable, one path per line) ──
         ctk.CTkLabel(self, text="Files to concatenate (one path per line):").pack(
@@ -95,6 +94,21 @@ class ConcatDialogFrame(ctk.CTkFrame):
         setup_keyboard_nav(add_btn, browse_out_btn, self._done_btn, cancel_btn)
         self.app.bind_all("<Escape>", lambda e: self.app.show_main_menu())
         self.after(0, self._list_box.focus_set)
+        self.after(0, self._fit_to_entry)
+
+    # ── sizing ────────────────────────────────────────────────────────
+
+    def _fit_to_entry(self) -> None:
+        """Resize window so the output-file entry shows 60 characters."""
+        from tkinter.font import Font
+        _ctk_font = ctk.CTkFont()
+        font = Font(family=_ctk_font.actual("family"), size=_ctk_font.cget("size"))
+        scaling = self.app._get_window_scaling()
+        entry_w = int(font.measure("0") * 60 / scaling)
+        browse_w = 80
+        browse_padx = 5
+        min_w = entry_w + browse_w + browse_padx + 2 * PADDING
+        fit_window(self.app, self, min_w)
 
     # ── callbacks ─────────────────────────────────────────────────────
 
