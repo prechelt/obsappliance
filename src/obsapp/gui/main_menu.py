@@ -27,7 +27,7 @@ you can **concatenate** these recordings into one. Just list the files in the ri
 """
 
 class MainMenuFrame(ctk.CTkFrame):
-    def __init__(self, parent: ctk.CTkFrame, app: App) -> None:
+    def __init__(self, parent: ctk.CTk | ctk.CTkFrame, app: App) -> None:
         super().__init__(parent, fg_color="transparent")
         self.app = app
 

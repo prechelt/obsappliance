@@ -11,6 +11,8 @@ from pathlib import Path
 import customtkinter as ctk
 
 from .config import ConfigStore
+from .gui.censor_dialog import CensorDialogFrame
+from .gui.concat_dialog import ConcatDialogFrame
 from .gui.main_menu import MainMenuFrame
 from .gui.record_dialog import RecordDialogFrame, RecordingFrame
 from .gui.widgets import PADDING, show_message
@@ -83,6 +85,12 @@ class App(ctk.CTk):
 
     def show_recording_controls(self, target_path: Path) -> None:
         self._show_frame(RecordingFrame(self, app=self, target_path=target_path))
+
+    def show_censor_dialog(self) -> None:
+        self._show_frame(CensorDialogFrame(self, app=self))
+
+    def show_concat_dialog(self) -> None:
+        self._show_frame(ConcatDialogFrame(self, app=self))
 
     # ── shutdown ──────────────────────────────────────────────────────
 
