@@ -71,7 +71,7 @@ Variants:
      - MP4 file name text field + file-chooser button.
      - A scrollable text area (initially ~5 lines tall) for time ranges, one per line.
        Format: `M:SS-M:SS` or `H:MM:SS-H:MM:SS` (whole seconds only).
-       Example: "0:57-1:02" means seconds 57–62 will be cut and replaced by a short white frame
+       Example: "0:57-1:02" means seconds 57–62 will be cut and replaced by a 1-second white frame
        with large black text "0:57-1:02 deleted". The output video is shorter than the input.
      - Buttons "OK", "Cancel".
      On "OK": validate ranges (no overlaps, within video duration, valid format).
@@ -110,7 +110,7 @@ OBSapp shuts down OBS (if running) and terminates.
 - Works on Windows 11, macOS, Linux (those distros that SW developers tend to have)
 - Nothing ever requires superuser rights
 - Recording consumes only modest amounts of CPU and memory so as not to disturb the human's work.
-  In particular, the frame rate is 5 to 10 fps because smooth movement is unimportant.
+  In particular, the frame rate is 8 fps because smooth movement is unimportant.
 - The entire installation is a single file tree in $HOME and is readily movable
   (i.e. uses only relative paths internally).
 
@@ -161,28 +161,69 @@ venv_dir=c:/venvs/obsapp
 
 ## 5. Remaining future development steps
 
+
+### 5.1 On Dhaka: Initialize development
+
 Initialize development from a `pwsh` by
 ```
 cd c:/ws/gh/obsappliance
 c:\venv\obsapp\Scripts\Activate.ps1
 ```
-and then either `\sw\opencode\opencode` for agentic work or the following for testing
+
+### 5.2 Start agentic work
+
+`\sw\opencode\opencode` while in `pwsh` (or `/c/sw/opencode/opencode` while in `bash`).
+
+### 5.3 Interactive testing
+
 ```
 & 'C:\Program Files\Git\bin\bash.exe'
 PYTHONPATH=src python -m obsapp.main tmp_obsappdir/obsapp-config.ini
 ```
 
-Steps to do:
+### 5.4 Steps to do
+
 - Get "concatenate" functionality to work
 - Determine window sizes in the natural manner: based on content sizes.
 - _make_text_frame(): make the font scaling work, it currently does not scale down long filenames.
-- Get "censor" functionality to work
 - Revise the installer to use obsapp-config.ini rather than the current fixed directory-shape convention.
 - Test on Linux
 - Test on macOS
 
 
-### 6. Next development steps
+### 6. Next development step
 
-...
+Let us discuss a near-system-level integration test of the entire functionality.
+It will be run by a developer on the kind of machine also to be used for recordings (not in a CI environment).
+It should perform these steps:
 
+1. Start obsapp. We drive it through api.py, though, not the GUI.
+2. Select the first screen, first webcam (or none if none exists), first microphone (or none if none exists).
+3. Show a large-enough additional 'Timer' window on the recorded screen that counts the time upwards in real time,
+   showing seconds with one decimal place. Use a known, fixed-width font. 
+   Update this window every 0.1 seconds.
+   Paint a unique sentinel border color (e.g. magenta #FF00FF) around the Timer window and then 
+   scan the extracted frame for the sentinel rectangle to find the time to be checked.
+4. Start recording (to file 'recording1.mp4'), let it run for 5 seconds.
+5. Pause recording for 2 seconds
+6. Unpause recording
+7. Stop recording after another 3 seconds (so that it has run for about 10 seconds overall and has
+   recorded about 8 seconds of video)
+8. Extract a still frame from 'recording1.mp4' at first frame and then every 0.8 seconds.
+   Consider that starting, pausing, unpausing the recording may each involve delay. 
+   OCR the times displayed. 
+   Report the delays.
+   Make sure the other times are as expected, with tolerance 0.5 seconds.
+9. Censor time range 0:03 to 0:05 (that is, seconds 3 and 4 of the recording, modulo delay)
+10. Repeat the time-display checking of step 8 for 'recording1-censored.mp4', skipping the 
+    1-second white frame showing the censored timerange. 
+11. Make sure the duration of 'recording1-censored.mp4' is about 1 second less than that of 'recording1.mp4':
+    2 seconds deleted, 1 second of placeholder inserted.
+
+Write the test as a standalone Python script, not as a pytest test.
+Make sure it can easily be made work for the future macOS and Linux versions of obsapp as well. 
+Make it report each step as it happens by printing a line to stdout.
+By having the terminal window on the recorded screen, the user can then get helpful debugging info
+recorded in the video.
+Have try/catch to clean up OBS and tempfiles in case of errors.
+Allow for frame rates as low as 5 fps.
