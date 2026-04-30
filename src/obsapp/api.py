@@ -187,12 +187,18 @@ class Session:
         target_path = Path(target_path)
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # OBS resolves relative recording paths against its own CWD (the OBS
+        # binary directory), which is typically not writable and triggers
+        # "the configured recording path could not be opened".  Always pass an
+        # absolute path so OBS opens the directory the caller intended.
+        output_dir = str(target_path.parent.resolve())
+
         self.obs.setup_recording(
             monitor_value=mon_val,
             monitor_resolution=(mon_w, mon_h),
             mic_value=mic_val,
             webcam_value=webcam_val,
-            output_dir=str(target_path.parent),
+            output_dir=output_dir,
         )
         self.obs.start_recording()
         self._target_path = target_path
