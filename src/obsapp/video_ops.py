@@ -17,7 +17,11 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from .constants import FPS_DEFAULT
+from .constants import (
+    CENSORING_REPLACEMENTSLIDE_DURATION_SECS,
+    CONCATENATE_FILENAMESLIDE_DURATION_SECS,
+    FPS_DEFAULT,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +244,7 @@ def censor(
                 ffmpeg_path, f"{label} deleted",
                 width=width, height=height, fps=fps,
                 out_path=frame_path,
+                duration=CENSORING_REPLACEMENTSLIDE_DURATION_SECS,
             )
             segment_files.append(frame_path)
             seg_idx += 1
@@ -431,15 +436,18 @@ def concatenate(
     width, height, fps = info["width"], info["height"], info["fps"]
 
     # Probe all files for their durations so we can compute a progress denominator.
-    # Title frames each contribute _TITLE_DURATION seconds to the total.
-    _TITLE_DURATION = 1.0
+    # Title frames each contribute CONCATENATE_FILENAMESLIDE_DURATION_SECS seconds
+    # to the total.
     durations: list[float] = []
     for inp in input_paths:
         try:
             durations.append(probe_video(ffmpeg_path, inp)["duration"])
         except Exception:
             durations.append(0.0)
-    total_seconds = sum(durations) + len(input_paths) * _TITLE_DURATION
+    total_seconds = (
+        sum(durations)
+        + len(input_paths) * CONCATENATE_FILENAMESLIDE_DURATION_SECS
+    )
     if total_seconds <= 0.0:
         total_seconds = 1.0   # guard against degenerate input
 
@@ -459,12 +467,12 @@ def concatenate(
                 ffmpeg_path, inp.name,
                 width=width, height=height, fps=fps,
                 out_path=frame_path,
-                duration=_TITLE_DURATION,
+                duration=CONCATENATE_FILENAMESLIDE_DURATION_SECS,
                 vcodec="libx264",
                 acodec="aac",
                 audio=True,
             )
-            completed_seconds += _TITLE_DURATION
+            completed_seconds += CONCATENATE_FILENAMESLIDE_DURATION_SECS
             _report(completed_seconds / total_seconds)
             segment_files.append(frame_path)
 
