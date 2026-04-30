@@ -14,6 +14,7 @@ import obsws_python as obsws
 # already present in the raised exception.  Silence it globally.
 logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
 
+from .constants import FPS_DEFAULT
 from .os_specifics import (
     _enum_monitors_win32, _enum_mics_win32, _enum_webcams_win32,
     _enum_monitors_linux, _enum_mics_linux,
@@ -324,7 +325,7 @@ class OBSController:
                 "\n"
                 "[Video]\n"
                 "FPSType=2\n"
-                "FPSNum=10\n"
+                f"FPSNum={FPS_DEFAULT}\n"
                 "FPSDen=1\n"
                 "\n"
                 "[Output]\n"

@@ -17,6 +17,8 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
+from .constants import FPS_DEFAULT
+
 
 # ---------------------------------------------------------------------------
 # FFmpeg discovery
@@ -78,9 +80,11 @@ def probe_video(ffmpeg_path: str, input_path: Path) -> dict:
     width = int(video_stream["width"])
     height = int(video_stream["height"])
     # fps from avg_frame_rate or r_frame_rate, e.g. "10/1"
-    fps_raw = video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate", "10/1")
+    fps_raw = video_stream.get("avg_frame_rate") or video_stream.get(
+        "r_frame_rate", f"{FPS_DEFAULT}/1"
+    )
     num, den = fps_raw.split("/")
-    fps = float(num) / float(den) if float(den) else 10.0
+    fps = float(num) / float(den) if float(den) else float(FPS_DEFAULT)
     return {"duration": duration, "width": width, "height": height, "fps": fps}
 
 
