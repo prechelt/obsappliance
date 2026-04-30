@@ -389,12 +389,24 @@ class OBSController:
         cfg.set("Video", "BaseCY",   str(height))
         cfg.set("Video", "OutputCX", str(width))
         cfg.set("Video", "OutputCY", str(height))
+        # Read FPS from basic.ini so the running OBS session keeps the rate
+        # the profile prescribes.  set_video_settings requires numerator and
+        # denominator; if we don't pass them, obsws_python sends defaults
+        # that override whatever the profile said.
+        try:
+            fps_num = int(cfg.get("Video", "FPSNum"))
+        except (configparser.NoOptionError, ValueError):
+            fps_num = FPS_DEFAULT
+        try:
+            fps_den = int(cfg.get("Video", "FPSDen"))
+        except (configparser.NoOptionError, ValueError):
+            fps_den = 1
         with prof_ini.open("w", encoding="utf-8-sig") as fh:
             cfg.write(fh)
         # Push to the running OBS session via websocket so we don't need a restart.
         self.ws.set_video_settings(
-            numerator=10,
-            denominator=1,
+            numerator=fps_num,
+            denominator=fps_den,
             base_width=width,
             base_height=height,
             out_width=width,
