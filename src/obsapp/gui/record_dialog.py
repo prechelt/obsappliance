@@ -163,23 +163,16 @@ class RecordDialogFrame(ctk.CTkFrame):
             "target_file": str(target_path),
         })
 
-        monitor_name = self._monitor_var.get()
-        monitor_val = self._monitor_map.get(monitor_name, "")
-        monitor_res = self._monitor_res_map.get(monitor_name, (1920, 1080))
         mic_name = self._mic_var.get()
-        mic_val = self._mic_map.get(mic_name) if mic_name != "<no audio>" else None
         webcam_name = self._webcam_var.get()
-        webcam_val = self._webcam_map.get(webcam_name) if webcam_name != "<no webcam>" else None
 
         try:
-            self.app.obs.setup_recording(
-                monitor_value=monitor_val,
-                monitor_resolution=monitor_res,
-                mic_value=mic_val,
-                webcam_value=webcam_val,
-                output_dir=str(target_path.parent),
+            self.app.session.start_recording(
+                monitor_name=self._monitor_var.get(),
+                mic_name=mic_name if mic_name != "<no audio>" else None,
+                webcam_name=webcam_name if webcam_name != "<no webcam>" else None,
+                target_path=target_path,
             )
-            self.app.obs.start_recording()
             self.app.show_recording_controls(target_path)
         except Exception as exc:
             show_message(self, "OBSapp: Error", f"Failed to start recording:\n{exc}")
@@ -221,41 +214,31 @@ class RecordingFrame(ctk.CTkFrame):
 
     def _on_pause(self) -> None:
         if self._paused:
-            self.app.obs.resume_recording()
+            self.app.session.resume_recording()
             self._pause_btn.configure(text="Pause")
             self._paused = False
         else:
-            self.app.obs.pause_recording()
+            self.app.session.pause_recording()
             self._pause_btn.configure(text="Resume")
             self._paused = True
 
     def _on_stop(self) -> None:
         # Pause first so the user can review (2a6).
         if not self._paused:
-            self.app.obs.pause_recording()
+            self.app.session.pause_recording()
             self._paused = True
             self._pause_btn.configure(text="Resume")
 
         if ask_confirmation(self, "OBSapp: Stop recording", "Stop recording?"):
             try:
-                actual_path_str = self.app.obs.stop_recording()
-                # Rename OBS's auto-named file to the user's chosen target.
-                # OBS may still hold the file handle briefly after stop_record()
-                # returns (it flushes on a background thread), so retry with
-                # backoff until the rename succeeds or a timeout is reached.
-                if actual_path_str:
-                    actual = Path(actual_path_str)
-                    if actual.exists() and actual != self.target_path:
-                        self.target_path.parent.mkdir(parents=True, exist_ok=True)
-                        if self.target_path.exists():
-                            self.target_path.unlink()
-                        _rename_with_retry(actual, self.target_path)
+                # Session.stop_recording() handles the OBS-auto-name → target rename.
+                self.app.session.stop_recording()
             except Exception as exc:
                 show_message(self, "OBSapp: Error", f"Error stopping recording:\n{exc}")
             self.app.show_main_menu()
         else:
             # Cancel → unpause (2a6).
-            self.app.obs.resume_recording()
+            self.app.session.resume_recording()
             self._pause_btn.configure(text="Pause")
             self._paused = False
 
@@ -266,11 +249,9 @@ def _rename_with_retry(
     timeout: float = 10.0,
     interval: float = 0.5,
 ) -> None:
-    """Rename *src* to *dst*, retrying on PermissionError for up to *timeout* seconds.
+    """Deprecated; kept for backward compatibility.
 
-    OBS finalises MP4 files on a background thread after stop_record() returns,
-    so the file handle may still be open for a short time.  On Windows this
-    manifests as [WinError 32] (file in use).
+    The rename-on-stop logic now lives in :meth:`obsapp.api.Session.stop_recording`.
     """
     deadline = time.monotonic() + timeout
     while True:

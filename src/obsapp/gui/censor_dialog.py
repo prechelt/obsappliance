@@ -14,12 +14,6 @@ import customtkinter as ctk
 from tkinter import filedialog
 
 from .widgets import PADDING, MarkupLabel, fit_window, fix_textbox_tab, setup_keyboard_nav, show_message
-from ..video_ops import (
-    find_ffmpeg,
-    probe_video,
-    validate_censor_ranges,
-    censor,
-)
 
 if TYPE_CHECKING:
     from ..main import App
@@ -126,24 +120,6 @@ class CensorDialogFrame(ctk.CTkFrame):
             return
 
         ranges_text = self._ranges_box.get("1.0", "end")
-
-        # Probe video to get duration.
-        try:
-            ffmpeg = find_ffmpeg(self.app.ffmpeg_executable)
-            info = probe_video(ffmpeg, input_path)
-        except Exception as exc:
-            show_message(self, "Error", f"Could not probe video:\n{exc}")
-            return
-
-        ranges, errors = validate_censor_ranges(ranges_text, info["duration"])
-        if errors:
-            show_message(self, "Validation errors", "\n".join(errors))
-            return
-
-        if not ranges:
-            show_message(self, "Error", "No time ranges entered.")
-            return
-
         output_path = input_path.with_stem(input_path.stem + "-censored")
 
         # Run in a background thread so the GUI stays responsive.
@@ -153,14 +129,8 @@ class CensorDialogFrame(ctk.CTkFrame):
 
         def _worker():
             try:
-                censor(
-                    ffmpeg,
-                    input_path,
-                    ranges,
-                    output_path,
-                    width=info["width"],
-                    height=info["height"],
-                    fps=info["fps"],
+                self.app.session.censor_video(
+                    input_path, ranges_text, output_path=output_path,
                 )
                 self.after(0, lambda: self._on_done(output_path, error=None))
             except Exception as exc:

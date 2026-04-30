@@ -3,37 +3,19 @@
 Entry point: obsapp.main:main  (see pyproject.toml [project.scripts]).
 """
 
-import configparser
 import os
 import sys
 from pathlib import Path
 
 import customtkinter as ctk
 
+from .api import Session, load_config, obs_config_dir_for
 from .config import ConfigStore
 from .gui.censor_dialog import CensorDialogFrame
 from .gui.concat_dialog import ConcatDialogFrame
 from .gui.main_menu import MainMenuFrame
 from .gui.record_dialog import RecordDialogFrame, RecordingFrame
 from .gui.widgets import PADDING, show_message
-from .obs_control import OBSController
-
-# Name of the OBS config subdirectory inside the obsapp directory.
-_OBS_CONFIG_SUBDIR = "obs-config"
-
-
-def _read_config(inifile: str) -> dict:
-    """Parse the given .ini file and return its entries as a flat dict."""
-    path = Path(inifile)
-    if not path.suffix == ".ini" or not path.exists():
-        sys.exit(f"Error: '{inifile}' is not an existing .ini file.")
-    parser = configparser.ConfigParser()
-    parser.read(path)
-    result = {}
-    for section in parser.sections():
-        for key, value in parser.items(section):
-            result[key] = value
-    return result
 
 
 class App(ctk.CTk):
@@ -42,10 +24,11 @@ class App(ctk.CTk):
         self.title("OBSapp")
         self.ffmpeg_executable: str = cfg["ffmpeg_executable"]
 
-        self.obs = OBSController(
-            obs_executable=cfg["obs_executable"],
-            obs_config_dir=obs_config_dir,
-        )
+        # Programmatic appliance API.  GUI callbacks delegate to it; the
+        # integration test driver uses the same Session directly.
+        self.session = Session(cfg=cfg, obs_config_dir=obs_config_dir)
+        # Backward-compat alias for existing GUI code that uses app.obs.*
+        self.obs = self.session.obs
         self.config_store = ConfigStore(Path("obsapp_settings.json"))
 
         self._current_frame: ctk.CTkFrame | None = None
@@ -120,14 +103,11 @@ class App(ctk.CTk):
 def main() -> None:
     if len(sys.argv) < 2:
         sys.exit("Error: expected a .ini file as the first argument.")
-    cfg = _read_config(sys.argv[1])
-    missing = [k for k in ("obs_executable", "ffmpeg_executable") if k not in cfg]
-    if missing:
-        sys.exit(
-            "Error: the following entries are missing from the .ini file: "
-            + ", ".join(missing)
-        )
-    obs_config_dir = Path(sys.argv[1]).resolve().parent / _OBS_CONFIG_SUBDIR
+    try:
+        cfg = load_config(sys.argv[1])
+    except (FileNotFoundError, ValueError) as exc:
+        sys.exit(f"Error: {exc}")
+    obs_config_dir = obs_config_dir_for(sys.argv[1])
     os.chdir(Path(sys.argv[1]).resolve().parent)
     ctk.set_appearance_mode("system")
     ctk.set_default_color_theme("blue")
