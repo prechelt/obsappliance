@@ -65,6 +65,34 @@ def run_timer(x: int, y: int, w: int, h: int, anchor: float) -> None:
     """Run the Tk Timer window. Blocks until the parent kills the process."""
     import tkinter as tk
 
+    # The driver enumerates monitors with Per-Monitor DPI Aware v2, so the
+    # (x, y, w, h) we receive are *physical* pixels.  Tk's ``geometry`` takes
+    # logical pixels by default, which on a DPI-scaled multi-monitor desktop
+    # places the window in the wrong spot (sometimes off-screen).  Mark this
+    # process Per-Monitor DPI Aware v2 *before* creating the Tk root so Tk's
+    # geometry coordinates are also physical pixels.
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            set_ctx = getattr(user32, "SetProcessDpiAwarenessContext", None)
+            if set_ctx is not None:
+                set_ctx.restype = ctypes.c_bool
+                set_ctx.argtypes = [ctypes.c_void_p]
+                # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
+                if not set_ctx(ctypes.c_void_p(-4)):
+                    # Fall back to Per-Monitor v1 on older Windows 10 builds.
+                    set_ctx(ctypes.c_void_p(-3))
+            else:
+                # Pre-1607 fallback: process-wide System DPI Aware.
+                shcore = getattr(ctypes.windll, "shcore", None)
+                if shcore is not None:
+                    shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+                else:
+                    user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
     root = tk.Tk()
     root.overrideredirect(True)
     root.geometry(f"{w}x{h}+{x}+{y}")
@@ -123,7 +151,7 @@ def run_timer(x: int, y: int, w: int, h: int, anchor: float) -> None:
 
 def decode_barcode(image_path: Path) -> int | None:
     """Return decoded centisecond value, or None if the sentinel was not found."""
-    from PIL import Image, ImageChops
+    from PIL import Image, ImageChops, ImageFilter
 
     img = Image.open(image_path).convert("RGB")
     r, g, b = img.split()
@@ -133,7 +161,14 @@ def decode_barcode(image_path: Path) -> int | None:
     g_mask = g.point(lambda v: 255 if v < 100 else 0)
     b_mask = b.point(lambda v: 255 if v > 180 else 0)
     mask = ImageChops.multiply(ImageChops.multiply(r_mask, g_mask), b_mask)
-    bbox = mask.getbbox()
+    # Other UI elements on the captured desktop (icons, syntax highlighting,
+    # cursor sprites) can include stray magenta pixels that, if left alone,
+    # blow up the bounding box of the timer's sentinel.  The timer's border
+    # is BORDER_PX (=12) pixels thick, so a 5-pixel binary erosion (MinFilter
+    # with kernel 5) removes anything thinner than ~5 px while leaving the
+    # border largely intact.  We then take the bbox of the eroded mask.
+    eroded = mask.filter(ImageFilter.MinFilter(5))
+    bbox = eroded.getbbox()
     if bbox is None:
         return None
     x0, y0, x1, y1 = bbox
@@ -141,6 +176,14 @@ def decode_barcode(image_path: Path) -> int | None:
     # Reject obviously-too-small candidates (noise / stray magenta).
     if bw < 100 or bh < 50:
         return None
+    # The eroded bbox is inset by ~2 px on each side relative to the true
+    # outer border.  Expand it by one MinFilter radius so subsequent inner
+    # padding reasoning matches the original (un-eroded) sentinel geometry.
+    x0 = max(0, x0 - 2)
+    y0 = max(0, y0 - 2)
+    x1 = min(img.size[0], x1 + 2)
+    y1 = min(img.size[1], y1 + 2)
+    bw, bh = x1 - x0, y1 - y0
 
     # Step inside the magenta border by ~3 % of the bbox to land on the
     # white interior reliably even with a few pixels of compression bleed.
