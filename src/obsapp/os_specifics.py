@@ -17,10 +17,38 @@ def _enum_monitors_win32() -> list[tuple[str, str, int, int]]:
 
     The GDI device name (e.g. "\\\\.\\DISPLAY1") is the value OBS's
     monitor_capture source expects for its "monitor_id" property.
-    Width and height are the monitor's native pixel dimensions.
+    Width, height, and the @x,y offset in the label are the monitor's
+    **physical** pixel dimensions / virtual-screen coordinates.
+
+    Windows lies to non-DPI-aware processes: ``EnumDisplayMonitors`` and
+    ``GetMonitorInfo`` return DPI-scaled (logical) rectangles instead of
+    physical pixels.  E.g. a 1920×1080 monitor at 125% scaling reports
+    1536×864.  These bogus values are useless for OBS (which captures
+    physical pixels) and for placing always-on-top windows by their screen
+    pixel coordinates.
+
+    We sidestep this by making **the current thread** Per-Monitor DPI
+    Aware v2 for the duration of the enumeration.  This is reversible
+    (we restore the previous context before returning) and does not
+    affect any GUI thread that may have a different awareness setting.
     """
     import ctypes
     import ctypes.wintypes as wt
+
+    user32 = ctypes.windll.user32
+
+    # SetThreadDpiAwarenessContext is available on Windows 10 1607+.
+    # The context "Per-Monitor Aware v2" is the pseudo-handle -4.
+    DPI_CTX_PER_MONITOR_AWARE_V2 = ctypes.c_void_p(-4)
+    prev_ctx = None
+    set_ctx = getattr(user32, "SetThreadDpiAwarenessContext", None)
+    if set_ctx is not None:
+        set_ctx.restype = ctypes.c_void_p
+        set_ctx.argtypes = [ctypes.c_void_p]
+        try:
+            prev_ctx = set_ctx(DPI_CTX_PER_MONITOR_AWARE_V2)
+        except Exception:
+            prev_ctx = None
 
     monitors: list[tuple[str, str, int, int]] = []
 
@@ -43,7 +71,7 @@ def _enum_monitors_win32() -> list[tuple[str, str, int, int]]:
     def _callback(hmon, _hdc, _lprect, _lparam):
         mi = MONITORINFOEX()
         mi.cbSize = ctypes.sizeof(MONITORINFOEX)
-        ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.byref(mi))
+        user32.GetMonitorInfoW(hmon, ctypes.byref(mi))
         r = mi.rcMonitor
         w = r.right - r.left
         h = r.bottom - r.top
@@ -55,9 +83,16 @@ def _enum_monitors_win32() -> list[tuple[str, str, int, int]]:
         monitors.append((label, mi.szDevice, w, h))
         return True
 
-    ctypes.windll.user32.EnumDisplayMonitors(
-        None, None, MONITORENUMPROC(_callback), 0,
-    )
+    try:
+        user32.EnumDisplayMonitors(
+            None, None, MONITORENUMPROC(_callback), 0,
+        )
+    finally:
+        if set_ctx is not None and prev_ctx is not None:
+            try:
+                set_ctx(prev_ctx)
+            except Exception:
+                pass
     return monitors
 
 
