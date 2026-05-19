@@ -4,15 +4,60 @@ from __future__ import annotations
 
 import datetime
 import time
+import tkinter as tk
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import customtkinter as ctk
 
+from ..api import PiPConfig
+from ..constants import (
+    PIP_CELL_MARGIN,
+    PIP_HEIGHT,
+    PIP_SIZE_LARGE,
+    PIP_SIZE_MEDIUM,
+    PIP_SIZE_SMALL,
+    PIP_WEBCAM_ASPECT,
+)
 from .widgets import PADDING, ask_confirmation, choose_save_file, fit_window, fix_textbox_tab, setup_keyboard_nav, show_message
 
 if TYPE_CHECKING:
     from ..main import App
+
+# ── PiP preview grid constants ────────────────────────────────────────────────
+
+# Derived canvas dimensions (logical pixels) — all follow from the three
+# tuneable constants in constants.py (PIP_HEIGHT, PIP_CELL_MARGIN, PIP_WEBCAM_ASPECT).
+_PIP_CELL_H: float = (PIP_HEIGHT - 4 * PIP_CELL_MARGIN) / 3
+_PIP_CELL_W: float = _PIP_CELL_H * PIP_WEBCAM_ASPECT
+_PIP_CANVAS_W: int = round(3 * _PIP_CELL_W + 4 * PIP_CELL_MARGIN)
+
+_PIP_COLOR_SELECTED = "#3b8ed0"
+_PIP_COLOR_UNSELECTED = "#808080"
+
+_PIP_ROWS = ("top", "middle", "bottom")
+_PIP_COLS = ("left", "center", "right")
+
+_PIP_SIZE_LEGACY = {"small": PIP_SIZE_SMALL, "medium": PIP_SIZE_MEDIUM, "large": PIP_SIZE_LARGE}
+
+
+def _parse_pip_size(raw: object, default: int) -> int:
+    """Return a valid pip size int from a stored config value.
+
+    Accepts an int, a numeric string (``"240"``), or a legacy label
+    (``"small"`` / ``"medium"`` / ``"large"``).  Falls back to *default*
+    for any unrecognised value so stale config never crashes the dialog.
+    """
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str):
+        if raw in _PIP_SIZE_LEGACY:
+            return _PIP_SIZE_LEGACY[raw]
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+    return default
 
 
 class RecordDialogFrame(ctk.CTkFrame):
@@ -67,10 +112,48 @@ class RecordDialogFrame(ctk.CTkFrame):
         self._webcam_map = dict(webcams)
         self._webcam_menu = ctk.CTkOptionMenu(
             self, variable=self._webcam_var, values=webcam_names,
+            command=self._on_webcam_changed,
         )
         self._webcam_menu.pack(padx=PADDING, fill="x")
         if defaults.get("webcam") in webcam_names:
             self._webcam_var.set(defaults["webcam"])
+
+        # ── PiP position picker (hidden when no webcam selected) ──────
+        self._pip_pos_var = ctk.StringVar(
+            value=defaults.get("pip_position", "middle-right")
+        )
+        self._pip_size_var = ctk.IntVar(
+            value=_parse_pip_size(defaults.get("pip_size"), PIP_SIZE_SMALL)
+        )
+        self._pip_frame = ctk.CTkFrame(self, fg_color="transparent")
+        ctk.CTkLabel(self._pip_frame, text="Webcam position:").pack(
+            anchor="w", pady=(0, 2),
+        )
+        bg = self.winfo_toplevel().cget("background") if self.winfo_toplevel() else "white"
+        self._pip_canvas = tk.Canvas(
+            self._pip_frame,
+            width=_PIP_CANVAS_W,
+            height=PIP_HEIGHT,
+            bg=bg,
+            highlightthickness=1,
+            highlightbackground="#555555",
+            cursor="hand2",
+        )
+        self._pip_canvas.pack(anchor="w")
+        self._pip_canvas.bind("<Button-1>", self._on_pip_click)
+        size_row = ctk.CTkFrame(self._pip_frame, fg_color="transparent")
+        size_row.pack(anchor="w", pady=(4, 0))
+        ctk.CTkLabel(size_row, text="PiP insert height:").pack(side="left", padx=(0, 8))
+        for px in (PIP_SIZE_SMALL, PIP_SIZE_MEDIUM, PIP_SIZE_LARGE):
+            ctk.CTkRadioButton(
+                size_row, text=f"{px} pixel",
+                variable=self._pip_size_var, value=px,
+                command=self._pip_draw,
+            ).pack(side="left", padx=(0, 10))
+        # Show or hide pip_frame based on the current (defaulted) webcam choice.
+        if self._webcam_var.get() != "<no webcam>":
+            self._pip_frame.pack(after=self._webcam_menu, padx=PADDING, fill="x", pady=(8, 0))
+            self._pip_draw()
 
         # ── Target file ──
         ctk.CTkLabel(self, text="Target MP4 file:").pack(
@@ -116,6 +199,39 @@ class RecordDialogFrame(ctk.CTkFrame):
 
     # ── callbacks ─────────────────────────────────────────────────────
 
+    def _on_webcam_changed(self, value: str) -> None:
+        """Show or hide the PiP selector based on whether a webcam is chosen."""
+        if value == "<no webcam>":
+            self._pip_frame.pack_forget()
+        else:
+            self._pip_frame.pack(after=self._webcam_menu, padx=PADDING, fill="x", pady=(8, 0))
+            self._pip_draw()
+
+    def _pip_draw(self) -> None:
+        """Redraw the 3×3 position-picker grid on the PiP canvas."""
+        c = self._pip_canvas
+        c.delete("all")
+        sel = self._pip_pos_var.get()
+        for ri, row in enumerate(_PIP_ROWS):
+            for ci, col in enumerate(_PIP_COLS):
+                x0 = PIP_CELL_MARGIN + ci * (_PIP_CELL_W + PIP_CELL_MARGIN)
+                y0 = PIP_CELL_MARGIN + ri * (_PIP_CELL_H + PIP_CELL_MARGIN)
+                x1 = x0 + _PIP_CELL_W
+                y1 = y0 + _PIP_CELL_H
+                fill = _PIP_COLOR_SELECTED if f"{row}-{col}" == sel else _PIP_COLOR_UNSELECTED
+                c.create_rectangle(x0, y0, x1, y1, fill=fill, outline="")
+
+    def _on_pip_click(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        """Select the grid cell that was clicked."""
+        for ri, row in enumerate(_PIP_ROWS):
+            for ci, col in enumerate(_PIP_COLS):
+                x0 = PIP_CELL_MARGIN + ci * (_PIP_CELL_W + PIP_CELL_MARGIN)
+                y0 = PIP_CELL_MARGIN + ri * (_PIP_CELL_H + PIP_CELL_MARGIN)
+                if x0 <= event.x <= x0 + _PIP_CELL_W and y0 <= event.y <= y0 + _PIP_CELL_H:
+                    self._pip_pos_var.set(f"{row}-{col}")
+                    self._pip_draw()
+                    return
+
     def _set_min_width_for_entry(self) -> None:
         """Resize window so the target-file entry displays 60 characters."""
         from tkinter.font import Font
@@ -160,11 +276,24 @@ class RecordDialogFrame(ctk.CTkFrame):
             "monitor": self._monitor_var.get(),
             "mic": self._mic_var.get(),
             "webcam": self._webcam_var.get(),
+            "pip_position": self._pip_pos_var.get(),
+            "pip_size": self._pip_size_var.get(),
             "target_file": str(target_path),
         })
 
         mic_name = self._mic_var.get()
         webcam_name = self._webcam_var.get()
+
+        pip_cfg: PiPConfig | None = None
+        if webcam_name != "<no webcam>":
+            try:
+                pip_cfg = PiPConfig(
+                    position=self._pip_pos_var.get(),
+                    size=self._pip_size_var.get(),
+                )
+            except ValueError as exc:
+                show_message(self, "OBSapp: Error", f"Invalid PiP config:\n{exc}")
+                return
 
         try:
             self.app.session.start_recording(
@@ -172,6 +301,7 @@ class RecordDialogFrame(ctk.CTkFrame):
                 mic_name=mic_name if mic_name != "<no audio>" else None,
                 webcam_name=webcam_name if webcam_name != "<no webcam>" else None,
                 target_path=target_path,
+                pip=pip_cfg,
             )
             self.app.show_recording_controls(target_path)
         except Exception as exc:

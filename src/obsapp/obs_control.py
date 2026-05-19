@@ -206,8 +206,16 @@ class OBSController:
         mic_value: str | None,
         webcam_value: str | None,
         output_dir: str,
+        webcam_transform: tuple[int, int, int, int] | None = None,
     ) -> None:
-        """Configure OBS scene and sources for the upcoming recording."""
+        """Configure OBS scene and sources for the upcoming recording.
+
+        ``webcam_transform`` is an ``(x, y, w, h)`` tuple in OBS canvas pixels
+        describing the bounding box of the webcam PiP overlay.  When supplied,
+        ``OBS_BOUNDS_SCALE_INNER`` is applied so the webcam stream is scaled to
+        fit the box while preserving its real aspect ratio.  When ``None`` the
+        webcam source is created with OBS default positioning (full-canvas).
+        """
         assert self.ws is not None
         # Update the canvas/output resolution in the profile to match the
         # selected monitor.  Without this, a monitor with a different resolution
@@ -257,10 +265,29 @@ class OBSController:
         # Add webcam (if selected).
         if webcam_value:
             cam_kind, cam_prop = types["webcam"]
-            self.ws.create_input(
+            result = self.ws.create_input(
                 _SCENE_NAME, "OBSapp_Webcam", cam_kind,
                 {cam_prop: webcam_value}, True,
             )
+            if webcam_transform is not None:
+                item_id = result.scene_item_id
+                x, y, w, h = webcam_transform
+                self.ws.set_scene_item_transform(
+                    scene_name=_SCENE_NAME,
+                    item_id=item_id,
+                    transform={
+                        "positionX": float(x),
+                        "positionY": float(y),
+                        "rotation": 0.0,
+                        "scaleX": 1.0,
+                        "scaleY": 1.0,
+                        "alignment": 5,            # OBS_ALIGN_TOP | OBS_ALIGN_LEFT
+                        "boundsType": "OBS_BOUNDS_SCALE_INNER",
+                        "boundsAlignment": 0,
+                        "boundsWidth": float(w),
+                        "boundsHeight": float(h),
+                    },
+                )
         # Give OBS a moment to open the capture devices before recording starts.
         # Without this, the monitor source may produce a black frame and webcam
         # hardware may not finish initialising in time.

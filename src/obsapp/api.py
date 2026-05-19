@@ -21,8 +21,15 @@ from __future__ import annotations
 
 import configparser
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
+from .constants import (
+    PIP_SCREEN_MARGIN,
+    PIP_SIZE_SMALL,
+    PIP_WEBCAM_ASPECT,
+)
 from .obs_control import OBSController
 from .video_ops import (
     censor as _censor_op,
@@ -36,6 +43,73 @@ from .video_ops import (
 # Subdirectory inside the obsapp directory where OBS profile/scene/websocket
 # config is written.  Mirrors main._OBS_CONFIG_SUBDIR.
 _OBS_CONFIG_SUBDIR = "obs-config"
+
+
+# ── PiP configuration ─────────────────────────────────────────────────────
+
+@dataclass
+class PiPConfig:
+    """Webcam picture-in-picture overlay settings for a recording session.
+
+    ``position`` is one of the nine grid strings: ``"top-left"``,
+    ``"top-center"``, ``"top-right"``, ``"middle-left"``, ``"middle-center"``,
+    ``"middle-right"``, ``"bottom-left"``, ``"bottom-center"``,
+    ``"bottom-right"``.
+
+    ``size`` is one of ``"small"``, ``"medium"``, ``"large"``, mapping to the
+    ``PIP_SIZE_*`` constants (recorded-resolution pixels).
+    """
+
+    position: str = "middle-right"
+    size: int = PIP_SIZE_SMALL
+
+    _VALID_POSITIONS: ClassVar[frozenset[str]] = frozenset({
+        "top-left",    "top-center",    "top-right",
+        "middle-left", "middle-center", "middle-right",
+        "bottom-left", "bottom-center", "bottom-right",
+    })
+
+    def __post_init__(self) -> None:
+        if self.position not in self._VALID_POSITIONS:
+            raise ValueError(f"Invalid PiP position: {self.position!r}")
+        if not isinstance(self.size, int) or self.size <= 0:
+            raise ValueError(f"PiP size must be a positive integer, got {self.size!r}")
+
+
+def _pip_webcam_transform(
+    pip: PiPConfig,
+    canvas_w: int,
+    canvas_h: int,
+) -> tuple[int, int, int, int]:
+    """Return OBS canvas ``(x, y, w, h)`` for the webcam PiP overlay.
+
+    ``canvas_w`` / ``canvas_h`` are the monitor's native pixel dimensions,
+    which equal the OBS canvas size set via :meth:`Session.start_recording`.
+
+    Width is forced to ``pip.size * PIP_WEBCAM_ASPECT`` (16:9) so the bounding
+    box is always the right shape regardless of the physical webcam's AR.
+    OBS ``OBS_BOUNDS_SCALE_INNER`` then fits the real webcam stream inside it.
+    """
+    pip_h = pip.size
+    pip_w = round(pip_h * PIP_WEBCAM_ASPECT)
+
+    row, col = pip.position.split("-")
+
+    if col == "left":
+        x = PIP_SCREEN_MARGIN
+    elif col == "center":
+        x = (canvas_w - pip_w) // 2
+    else:  # right
+        x = canvas_w - pip_w - PIP_SCREEN_MARGIN
+
+    if row == "top":
+        y = PIP_SCREEN_MARGIN
+    elif row == "middle":
+        y = (canvas_h - pip_h) // 2
+    else:  # bottom
+        y = canvas_h - pip_h - PIP_SCREEN_MARGIN
+
+    return (x, y, pip_w, pip_h)
 
 
 # ── configuration loading ─────────────────────────────────────────────────
@@ -143,11 +217,14 @@ class Session:
         mic_name: str | None,
         webcam_name: str | None,
         target_path: Path,
+        pip: PiPConfig | None = None,
     ) -> None:
         """Configure OBS sources for the named devices and start recording.
 
         ``monitor_name`` must match a name returned by :meth:`list_monitors`.
         ``mic_name`` / ``webcam_name`` may be ``None`` to omit that input.
+        ``pip`` configures the webcam overlay position and size; ignored when
+        ``webcam_name`` is ``None``.
 
         OBS writes the recording into ``target_path.parent`` with an
         auto-generated filename; :meth:`stop_recording` renames it to
@@ -184,6 +261,11 @@ class Session:
                 )
             webcam_val = cam_map[webcam_name] or None
 
+        # Compute webcam transform if pip config provided.
+        webcam_transform: tuple[int, int, int, int] | None = None
+        if webcam_val is not None and pip is not None:
+            webcam_transform = _pip_webcam_transform(pip, mon_w, mon_h)
+
         target_path = Path(target_path)
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -198,6 +280,7 @@ class Session:
             monitor_resolution=(mon_w, mon_h),
             mic_value=mic_val,
             webcam_value=webcam_val,
+            webcam_transform=webcam_transform,
             output_dir=output_dir,
         )
         self.obs.start_recording()

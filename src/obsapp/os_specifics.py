@@ -417,7 +417,13 @@ def _enum_webcams_win32() -> list[tuple[str, str]]:
             friendly = _read_prop("FriendlyName")
             dev_path = _read_prop("DevicePath")
             if friendly:
-                results.append((friendly, dev_path or friendly))
+                # OBS dshow_input stores video_device_id as:
+                #   FriendlyName:DevicePath
+                # where every '#' in the Windows DevicePath is encoded as '#22'
+                # (OBS uses '#' as an escape character, so '#' → '#22').
+                encoded_path = dev_path.replace("#", "#22") if dev_path else ""
+                obs_device_id = f"{friendly}:{encoded_path}" if encoded_path else friendly
+                results.append((friendly, obs_device_id))
 
             # IPropertyBag::Release
             Release_pb = ctypes.WINFUNCTYPE(
