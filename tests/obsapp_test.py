@@ -150,7 +150,10 @@ def run_timer(x: int, y: int, w: int, h: int, anchor: float) -> None:
 # ── Barcode decoding (pure PIL, no numpy) ─────────────────────────────────
 
 def decode_barcode(image_path: Path) -> int | None:
-    """Return decoded centisecond value, or None if the sentinel was not found."""
+    """
+    Decoded centisecond value, or None if the sentinel was not found.
+    16-bit barcode: will wrap around after 655 seconds!
+    """
     from PIL import Image, ImageChops, ImageFilter
 
     img = Image.open(image_path).convert("RGB")
@@ -251,7 +254,7 @@ def preflight(cfg: dict) -> str:
     from obsapp.video_ops import find_ffmpeg
     ffmpeg = find_ffmpeg(cfg["ffmpeg_executable"])
     print(f"[preflight]   ffmpeg = {ffmpeg}")
-    obs_exe = Path(cfg["obs_executable"])
+    obs_exe = Path(cfg.get("obs_executable", "Missing config entry 'obs_executable'"))
     if not obs_exe.exists():
         raise FileNotFoundError(f"OBS not found: {obs_exe}")
     print(f"[preflight]   obs    = {obs_exe}")
@@ -317,7 +320,7 @@ def main_driver(inifile: Path) -> int:
     cfg = load_config(inifile)
     ffmpeg = preflight(cfg)
 
-    workdir = Path("tmp_obsappdir") / "test_run"
+    workdir = inifile.parent / "test_run"
     workdir.mkdir(parents=True, exist_ok=True)
     rec1 = workdir / "recording1.mp4"
     rec1_censored = workdir / "recording1-censored.mp4"
@@ -392,8 +395,8 @@ def main_driver(inifile: Path) -> int:
             time.sleep(3.0)
 
             print("[step 7] stop recording...")
+            t_stop = time.time()  # before the call: excludes OBS finalize/rename time
             out_path = session.stop_recording()
-            t_stop = time.time()
             print(f"          saved: {out_path}")
             assert out_path == rec1, f"path mismatch: {out_path} != {rec1}"
 
@@ -533,10 +536,101 @@ def main_driver(inifile: Path) -> int:
                 "n_frames_censored": len(all_frames2),
             }
             print("[summary] " + json.dumps(summary, default=lambda o: None))
-            return 0 if ok_delta else 1
+
+            # ── final checks ──────────────────────────────────────────────
+            print("[checks]")
+            failures: list[str] = []
+
+            # 1. recording1 duration is close to the external active duration.
+            if abs(delta_dur) >= tol + 1.0:
+                failures.append(
+                    f"recording1 duration {info1['duration']:.2f}s differs from "
+                    f"external active time {ext_active_dur:.2f}s by "
+                    f"{delta_dur:+.2f}s (tol={tol + 1.0:.2f}s)"
+                )
+
+            # 2. sentinel was found in at least half of the sampled frames.
+            n_decoded = sum(1 for _, _, cs in decoded_samples if cs is not None)
+            n_sampled = len(decoded_samples)
+            if n_sampled > 0 and n_decoded < n_sampled // 2:
+                failures.append(
+                    f"sentinel found in only {n_decoded}/{n_sampled} sampled "
+                    f"frames of recording1 — timer may have been off-screen or "
+                    f"occluded"
+                )
+
+            # 3. start delay is reasonable (OBS should begin within tol + 1 s).
+            if start_delay is None:
+                failures.append(
+                    "could not determine start delay: sentinel not found in "
+                    "first sampled frame"
+                )
+            elif abs(start_delay) >= tol + 1.0:
+                failures.append(
+                    f"start delay {start_delay:+.3f}s exceeds tolerance "
+                    f"{tol + 1.0:.2f}s"
+                )
+
+            # 4. pause jump detected and close to the external pause duration.
+            if pause_jump is None:
+                failures.append(
+                    "pause jump not detected in recording1 — pause/resume may "
+                    "not have been recorded, or too few decoded frames"
+                )
+            elif abs(pause_jump - ext_pause_dur) >= tol + 1.0:
+                failures.append(
+                    f"observed pause jump {pause_jump:.2f}s differs from "
+                    f"external pause {ext_pause_dur:.2f}s by "
+                    f"{pause_jump - ext_pause_dur:+.2f}s (tol={tol + 1.0:.2f}s)"
+                )
+
+            # 5. no timing anomalies in recording1.
+            for a in anomalies:
+                failures.append(f"timing anomaly in recording1: {a}")
+
+            # 6. censored video duration delta is as expected (step 11).
+            if not ok_delta:
+                failures.append(
+                    f"censored duration delta {delta:.2f}s differs from "
+                    f"expected {expected:.2f}s by {delta - expected:+.2f}s "
+                    f"(tol={tol:.2f}s)"
+                )
+
+            # 7. placeholder frame present in censored video (sentinel absent
+            #    for at least one sampled frame in the censored region ~0-3 s).
+            fps2 = info2["fps"]
+            censor_region_end_frame = int(3.5 * fps2)
+            placeholder_found = any(
+                decode_barcode(all_frames2[i]) is None
+                for i in range(0, min(censor_region_end_frame, len(all_frames2)))
+            )
+            if not placeholder_found:
+                failures.append(
+                    "no placeholder (sentinel-free) frame found in the first "
+                    "3.5 s of recording1-censored.mp4 — censor may have failed"
+                )
+
+            # 8. censored video has fewer frames than recording1.
+            if len(all_frames2) >= len(all_frames):
+                failures.append(
+                    f"censored video has {len(all_frames2)} frames, "
+                    f"not fewer than recording1 ({len(all_frames)} frames)"
+                )
+
+            if failures:
+                print(f"  FAILED ({len(failures)} issue(s)):")
+                for msg in failures:
+                    print(f"    - {msg}")
+            else:
+                print("  All looking good!")
+
+            return 0 if not failures else 1
 
     finally:
         _kill_timer(timer_proc)
+        for d in (frames_dir, frames_dir2):
+            if d.exists():
+                shutil.rmtree(d, ignore_errors=True)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────
