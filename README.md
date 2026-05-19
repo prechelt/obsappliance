@@ -1,6 +1,7 @@
 # OBS Appliance (OBSapp)
 
 A few-click appliance to easily screen-record your desktop work locally with Open Broadcaster Software (OBS).
+Records one screen and optionally audio and webcam video.
 We use recent versions of OBS (V.30 or younger).
 
 Still in early development and not ready for use.
@@ -115,7 +116,9 @@ OBSapp shuts down OBS (if running) and terminates.
   (i.e. uses only relative paths internally).
 
 
-## 3. Architecture and Base Technology
+## 3. Architecture
+
+### 3.1 Base Technology
 
 - **Installation** — bootstrap scripts (`install.sh` for Linux/macOS, `install.ps1` for Windows)
   download a portable OBS Studio (if needed), FFmpeg (if needed), Python (if needed), 
@@ -130,6 +133,34 @@ OBSapp shuts down OBS (if running) and terminates.
 - **obs-websocket** — built into OBS 28+, used for all runtime control
   (`StartRecord`, `StopRecord`, `PauseRecord`, `ResumeRecord`, `GetInputList`, etc.)
   via the `obsws-python` library. Runs on `localhost:4455` with no password.
+
+### 3.2 Modules
+
+- **`main.py`** — Entry point and top-level `App` (CustomTkinter window).
+  Owns the frame-switching lifecycle and starts/stops OBS on demand.
+
+- **`api.py`** — High-level, GUI-free API (`Session` class) that orchestrates
+  recording, censoring, and concatenation; used by both the GUI dialogs and the
+  integration test.
+
+- **`obs_control.py`** — Manages the OBS Studio process (launch, shutdown) and
+  issues all websocket commands (start/pause/resume/stop record, source setup).
+
+- **`video_ops.py`** — All FFmpeg work: probing video metadata, censoring ranges
+  (cut-and-replace with a text frame), and concatenating files with title slides.
+
+- **`config.py`** — Persists the record-dialog defaults (monitor, mic, webcam,
+  output path) as a JSON file so the next session starts with sensible values.
+
+- **`os_specifics.py`** — Enumerates monitors, microphones, and webcams via
+  native OS APIs (Win32 COM/ctypes, Linux xrandr/pactl, macOS system_profiler).
+
+- **`gui/*.py`** — One `CTkFrame` subclass per screen (main menu, record dialog,
+  censor dialog, concatenate dialog) plus shared widget helpers.
+  All geometry is specified in *logical* pixels (as CustomTkinter and `geometry()`
+  expect), but `winfo_reqwidth/height()` and `font.measure()` return *physical*
+  pixels on HiDPI displays; every such value must be divided by
+  `app._get_window_scaling()` before being passed to `geometry()` or `minsize()`.
 
 
 ## 4. Configuration
@@ -183,47 +214,16 @@ PYTHONPATH=src python -m obsapp.main tmp_obsappdir/obsapp-config.ini
 
 ### 5.4 Steps to do
 
-- Get "concatenate" functionality to work
-- Determine window sizes in the natural manner: based on content sizes.
+- Proper audio level
+- Test "concatenate" functionality. Make it work fast for equal-sized, equally-coded videos.
+- Determine window sizes in the natural manner: based on content sizes??
 - _make_text_frame(): make the font scaling work, it currently does not scale down long filenames.
 - Revise the installer to use obsapp-config.ini rather than the current fixed directory-shape convention.
-- Test on Linux
-- Test on macOS
+- Port to Linux
+- Port to macOS
 
 
 ### 6. Next development step
 
-Let us discuss a near-system-level integration test of the entire functionality.
-It will be run by a developer on the kind of machine also to be used for recordings (not in a CI environment).
-It should perform these steps:
+- Adjust audio noise gate level (must be lower)
 
-1. Start obsapp. We drive it through api.py, though, not the GUI.
-2. Select the first screen, first webcam (or none if none exists), first microphone (or none if none exists).
-3. Show a large-enough additional 'Timer' window on the recorded screen that counts the time upwards in real time,
-   showing seconds with one decimal place. Use a known, fixed-width font. 
-   Update this window every 0.1 seconds.
-   Paint a unique sentinel border color (e.g. magenta #FF00FF) around the Timer window and then 
-   scan the extracted frame for the sentinel rectangle to find the time to be checked.
-4. Start recording (to file 'recording1.mp4'), let it run for 5 seconds.
-5. Pause recording for 2 seconds
-6. Unpause recording
-7. Stop recording after another 3 seconds (so that it has run for about 10 seconds overall and has
-   recorded about 8 seconds of video)
-8. Extract a still frame from 'recording1.mp4' at first frame and then every 0.8 seconds.
-   Consider that starting, pausing, unpausing the recording may each involve delay. 
-   OCR the times displayed. 
-   Report the delays.
-   Make sure the other times are as expected, with tolerance 0.5 seconds.
-9. Censor time range 0:03 to 0:05 (that is, seconds 3 and 4 of the recording, modulo delay)
-10. Repeat the time-display checking of step 8 for 'recording1-censored.mp4', skipping the 
-    1-second white frame showing the censored timerange. 
-11. Make sure the duration of 'recording1-censored.mp4' is about 1 second less than that of 'recording1.mp4':
-    2 seconds deleted, 1 second of placeholder inserted.
-
-Write the test as a standalone Python script, not as a pytest test.
-Make sure it can easily be made work for the future macOS and Linux versions of obsapp as well. 
-Make it report each step as it happens by printing a line to stdout.
-By having the terminal window on the recorded screen, the user can then get helpful debugging info
-recorded in the video.
-Have try/catch to clean up OBS and tempfiles in case of errors.
-Allow for frame rates as low as 5 fps.
