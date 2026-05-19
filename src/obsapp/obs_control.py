@@ -15,6 +15,18 @@ import obsws_python as obsws
 logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
 
 from .constants import FPS_DEFAULT
+from .constants import (
+    MIC_COMP_ATTACK_MS,
+    MIC_COMP_OUTPUT_GAIN_DB,
+    MIC_COMP_RATIO,
+    MIC_COMP_RELEASE_MS,
+    MIC_COMP_THRESHOLD_DB,
+    MIC_GATE_ATTACK_MS,
+    MIC_GATE_CLOSE_DB,
+    MIC_GATE_HOLD_MS,
+    MIC_GATE_OPEN_DB,
+    MIC_GATE_RELEASE_MS,
+)
 from .os_specifics import (
     _enum_monitors_win32, _enum_mics_win32, _enum_webcams_win32,
     _enum_monitors_linux, _enum_mics_linux,
@@ -262,6 +274,7 @@ class OBSController:
                 _SCENE_NAME, "OBSapp_Mic", mic_kind,
                 {mic_prop: mic_value}, True,
             )
+            self._add_mic_filters("OBSapp_Mic")
         # Add webcam (if selected).
         if webcam_value:
             cam_kind, cam_prop = types["webcam"]
@@ -395,6 +408,51 @@ class OBSController:
             self.ws.create_scene(name)
         except Exception:
             pass  # code 601 = already exists; any other error is also non-fatal here
+
+    def _add_mic_filters(self, source_name: str) -> None:
+        """Attach a noise gate and a compressor filter to *source_name*.
+
+        The noise gate eliminates background noise during silence; the
+        compressor evens out speech dynamics for consistent intelligibility.
+        Both filters use the constants defined in :mod:`obsapp.constants`
+        so their settings can be tuned without touching this code.
+
+        Errors are silently swallowed — a missing filter is not fatal to
+        the recording; the user still gets audio, just unprocessed.
+        """
+        assert self.ws is not None
+        try:
+            self.ws.create_source_filter(
+                source_name,
+                "OBSapp_NoiseGate",
+                "noise_gate_filter",
+                {
+                    "open_threshold":  MIC_GATE_OPEN_DB,
+                    "close_threshold": MIC_GATE_CLOSE_DB,
+                    "attack_time":     MIC_GATE_ATTACK_MS,
+                    "hold_time":       MIC_GATE_HOLD_MS,
+                    "release_time":    MIC_GATE_RELEASE_MS,
+                },
+            )
+        except Exception:
+            pass  # non-fatal: unprocessed audio is better than no audio
+
+        try:
+            self.ws.create_source_filter(
+                source_name,
+                "OBSapp_Compressor",
+                "compressor_filter",
+                {
+                    "ratio":          MIC_COMP_RATIO,
+                    "threshold":      MIC_COMP_THRESHOLD_DB,
+                    "attack_time":    MIC_COMP_ATTACK_MS,
+                    "release_time":   MIC_COMP_RELEASE_MS,
+                    "output_gain":    MIC_COMP_OUTPUT_GAIN_DB,
+                    "sidechain_source": "",
+                },
+            )
+        except Exception:
+            pass  # non-fatal
 
     def _set_profile_resolution(self, width: int, height: int) -> None:
         """Write canvas and output resolution into the OBSapp profile basic.ini.

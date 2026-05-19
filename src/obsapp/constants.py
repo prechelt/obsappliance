@@ -25,8 +25,30 @@ PIP_SIZE_LARGE = 300
 # Gap from the nearest screen edge in OBS canvas pixels.
 PIP_SCREEN_MARGIN = 20
 
-# Duration (seconds) of the white info frame inserted in place of each
-# censored range by `censor()`.
+# ── Microphone audio filters ──────────────────────────────────────────────────
+#
+# A noise gate followed by a compressor is applied to every microphone source.
+# The gate eliminates background noise during silence; the compressor evens out
+# speech dynamics so intelligibility stays consistent.
+#
+# All threshold/gain values are in dBFS (negative = below full-scale).
+# All time values are in milliseconds.
+
+# Noise gate — mutes the mic while the level stays below close_threshold;
+# opens once the level rises above open_threshold.
+MIC_GATE_OPEN_DB: float = -26.0    # dBFS — typical peak level of distant/quiet speech
+MIC_GATE_CLOSE_DB: float = -32.0   # dBFS — 6 dB hysteresis prevents chatter
+MIC_GATE_ATTACK_MS: int = 25       # ms — fast enough to catch consonant onsets
+MIC_GATE_HOLD_MS: int = 200        # ms — stay open through brief inter-word pauses
+MIC_GATE_RELEASE_MS: int = 150     # ms — smooth fade-out when gate closes
+
+# Compressor — reduces the dynamic range of speech so that both quiet and loud
+# passages land at a similar perceived level.
+MIC_COMP_RATIO: float = 4.0        # 4:1 — audible but natural-sounding compression
+MIC_COMP_THRESHOLD_DB: float = -18.0  # dBFS — kick in once speech is clearly present
+MIC_COMP_ATTACK_MS: int = 6        # ms — fast enough to control plosives
+MIC_COMP_RELEASE_MS: int = 60      # ms — short enough not to pump between syllables
+MIC_COMP_OUTPUT_GAIN_DB: float = 0.0  # dB makeup gain — increase if overall level is low
 CENSORING_REPLACEMENTSLIDE_DURATION_SECS = 1
 
 # Duration (seconds) of the title slide showing each input file's name,
