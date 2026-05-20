@@ -18,9 +18,9 @@ PIP_CELL_MARGIN = 2
 PIP_WEBCAM_ASPECT: float = 16.0 / 9.0
 
 # Webcam overlay sizes in OBS *canvas* pixels (recorded resolution).
-PIP_SIZE_SMALL = 180
-PIP_SIZE_MEDIUM = 240
-PIP_SIZE_LARGE = 300
+PIP_SIZE_SMALL = 100
+PIP_SIZE_MEDIUM = 150
+PIP_SIZE_LARGE = 200
 
 # Gap from the nearest screen edge in OBS canvas pixels.
 PIP_SCREEN_MARGIN = 20
