@@ -22,6 +22,24 @@ class App(ctk.CTk):
     def __init__(self, cfg: dict, obs_config_dir: Path) -> None:
         super().__init__()
         self.title("OBSapp")
+
+        # Set our icon.  Two calls are needed on Windows:
+        # 1. iconbitmap() sets CTk's _iconbitmap_method_called flag so CTk
+        #    never overwrites the icon with its own logo.
+        # 2. wm_iconphoto() supplies a high-resolution PNG so Windows can
+        #    render a sharp icon on the taskbar and in task-switchers.
+        #    Tk 8.6+ loads PNG natively; no Pillow required.
+        #    The PhotoImage must be kept alive on self to prevent GC.
+        _res = Path(__file__).parent / "resources"
+        _ico = _res / "obsapp-icon.ico"
+        _png = _res / "obsapp-icon.png"
+        if _ico.exists():
+            self.iconbitmap(str(_ico))
+        if _png.exists():
+            import tkinter as tk
+            self._app_icon = tk.PhotoImage(file=str(_png))
+            self.wm_iconphoto(True, self._app_icon)
+
         self.ffmpeg_executable: str = cfg["ffmpeg_executable"]
 
         # Programmatic appliance API.  GUI callbacks delegate to it; the
@@ -109,9 +127,19 @@ def main() -> None:
         sys.exit(f"Error: {exc}")
     obs_config_dir = obs_config_dir_for(sys.argv[1])
     os.chdir(Path(sys.argv[1]).resolve().parent)
+
+    # On Windows, decouple the process from python.exe so the taskbar shows
+    # OBSapp as its own entry (not grouped under the Python launcher).
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "obsapp.obsapp.1"
+        )
+
     ctk.set_appearance_mode("system")
     ctk.set_default_color_theme("blue")
     app = App(cfg=cfg, obs_config_dir=obs_config_dir)
+
     try:
         app.mainloop()
     finally:
