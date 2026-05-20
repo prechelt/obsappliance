@@ -21,11 +21,12 @@ from .constants import (
     MIC_COMP_RATIO,
     MIC_COMP_RELEASE_MS,
     MIC_COMP_THRESHOLD_DB,
-    MIC_GATE_ATTACK_MS,
-    MIC_GATE_CLOSE_DB,
-    MIC_GATE_HOLD_MS,
-    MIC_GATE_OPEN_DB,
-    MIC_GATE_RELEASE_MS,
+    MIC_EXPANDER_ATTACK_MS,
+    MIC_EXPANDER_DETECTOR,
+    MIC_EXPANDER_KNEE_DB,
+    MIC_EXPANDER_RATIO,
+    MIC_EXPANDER_RELEASE_MS,
+    MIC_EXPANDER_THRESHOLD_DB,
 )
 from .os_specifics import (
     _enum_monitors_win32, _enum_mics_win32, _enum_webcams_win32,
@@ -410,9 +411,10 @@ class OBSController:
             pass  # code 601 = already exists; any other error is also non-fatal here
 
     def _add_mic_filters(self, source_name: str) -> None:
-        """Attach a noise gate and a compressor filter to *source_name*.
+        """Attach an expander and a compressor filter to *source_name*.
 
-        The noise gate eliminates background noise during silence; the
+        The expander attenuates audio below the threshold, reducing background
+        noise during silence without hard-muting quiet microphones.  The
         compressor evens out speech dynamics for consistent intelligibility.
         Both filters use the constants defined in :mod:`obsapp.constants`
         so their settings can be tuned without touching this code.
@@ -424,18 +426,21 @@ class OBSController:
         try:
             self.ws.create_source_filter(
                 source_name,
-                "OBSapp_NoiseGate",
-                "noise_gate_filter",
+                "OBSapp_Expander",
+                "expander_filter",
                 {
-                    "open_threshold":  MIC_GATE_OPEN_DB,
-                    "close_threshold": MIC_GATE_CLOSE_DB,
-                    "attack_time":     MIC_GATE_ATTACK_MS,
-                    "hold_time":       MIC_GATE_HOLD_MS,
-                    "release_time":    MIC_GATE_RELEASE_MS,
+                    "presets":      "expander",
+                    "ratio":        MIC_EXPANDER_RATIO,
+                    "threshold":    MIC_EXPANDER_THRESHOLD_DB,
+                    "attack_time":  MIC_EXPANDER_ATTACK_MS,
+                    "release_time": MIC_EXPANDER_RELEASE_MS,
+                    "detector":     MIC_EXPANDER_DETECTOR,
+                    "knee_width":   MIC_EXPANDER_KNEE_DB,
                 },
             )
         except Exception:
             pass  # non-fatal: unprocessed audio is better than no audio
+
 
         try:
             self.ws.create_source_filter(
