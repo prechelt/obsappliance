@@ -176,7 +176,8 @@ function Install-Python([string]$tmpDir) {
     $winget = Get-Command winget -ErrorAction SilentlyContinue
     if ($winget) {
         $minor = $PYTHON_FALLBACK_VER.Split('.')[1]
-        Write-Host "    trying winget to install Python 3.$minor ..."
+        $wingetCmd = "winget install --id `"Python.Python.3.$minor`" --silent --scope user --accept-package-agreements --accept-source-agreements"
+        Write-Host "    running: $wingetCmd"
         & winget install --id "Python.Python.3.$minor" --silent --scope user --accept-package-agreements --accept-source-agreements
         if ($LASTEXITCODE -eq 0) {
             $found = Find-SystemPython
@@ -195,13 +196,12 @@ function Install-Python([string]$tmpDir) {
 
     Write-Host "    running Python installer silently (user-mode, no admin needed) ..."
     & $pyInstaller /quiet InstallAllUsers=0 PrependPath=0 Include_launcher=0 Include_tcltk=1
-    if ($LASTEXITCODE -ne 0) {
-        Abort "Python silent installer failed (exit $LASTEXITCODE)."
-    }
+    $installerExit = $LASTEXITCODE
 
     $found = Find-SystemPython
     if (-not $found) {
-        Abort "Python installer completed but Python was not found in the registry afterwards."
+        Abort "Python silent installer failed (exit $installerExit) and Python was not found afterwards."
+    }
     }
     return $found
 }
