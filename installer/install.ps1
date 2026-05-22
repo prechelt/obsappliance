@@ -44,12 +44,13 @@ $OBSAPP_REPO  = "prechelt/obsappliance"
 $OBS_REPO     = "obsproject/obs-studio"
 $OBS_MIN_VER  = [version]"28.0"
 
-# Python: accepted minor version range for a system-wide Python.
-# The embeddable fallback is pinned to a specific release.
+# Python: accepted minor version range for a system-wide install with tkinter.
 $PYTHON_MIN_MINOR = 12   # 3.12
 $PYTHON_MAX_MINOR = 30   # 3.30 (upper bound, adjust as needed)
-$PYTHON_EMBED_VER = "3.12.10"
-$PYTHON_EMBED_MINOR = "312"   # used to locate python312._pth inside the zip
+
+# Pinned fallback version to download if no system Python is found.
+# Bump when a newer stable release ships.
+$PYTHON_FALLBACK_VER = "3.13.3"
 
 # BtbN provides a stable "latest" permalink for FFmpeg GPL Windows builds.
 $FFMPEG_URL   = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
@@ -150,6 +151,10 @@ function Find-SystemPython {
                 if ($dir) { $exe = Join-Path $dir "python.exe" }
             }
             if ($exe -and (Test-Path $exe)) {
+                # Reject embeddable distributions and any Python without tkinter,
+                # since CustomTkinter requires it.
+                & $exe -c "import tkinter" 2>$null
+                if ($LASTEXITCODE -ne 0) { continue }
                 $v = [version]"3.$minor"
                 if (-not $bestVer -or $v -gt $bestVer) {
                     $bestVer = $v
@@ -160,6 +165,45 @@ function Find-SystemPython {
         }
     }
     return $best
+}
+
+# Attempt to install Python automatically.
+# Tries winget first (fast, no download of our own), then falls back to the
+# official silent installer downloaded from python.org.
+# Returns the path to python.exe on success, aborts on failure.
+function Install-Python([string]$tmpDir) {
+    # ── winget ────────────────────────────────────────────────────────────────
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($winget) {
+        $minor = $PYTHON_FALLBACK_VER.Split('.')[1]
+        Write-Host "    trying winget to install Python 3.$minor ..."
+        & winget install --id "Python.Python.3.$minor" --silent --scope user --accept-package-agreements --accept-source-agreements
+        if ($LASTEXITCODE -eq 0) {
+            $found = Find-SystemPython
+            if ($found) { return $found }
+            Write-Host "    winget reported success but Python not found in registry; falling back ..." -ForegroundColor Yellow
+        } else {
+            Write-Host "    winget install failed (exit $LASTEXITCODE); falling back ..." -ForegroundColor Yellow
+        }
+    }
+
+    # ── Official silent installer ──────────────────────────────────────────────
+    Write-Host "    downloading Python $PYTHON_FALLBACK_VER installer ..."
+    $pyExeUrl  = "https://www.python.org/ftp/python/$PYTHON_FALLBACK_VER/python-$PYTHON_FALLBACK_VER-amd64.exe"
+    $pyInstaller = Join-Path $tmpDir "python-installer.exe"
+    Save-File $pyExeUrl $pyInstaller
+
+    Write-Host "    running Python installer silently (user-mode, no admin needed) ..."
+    & $pyInstaller /quiet InstallAllUsers=0 PrependPath=0 Include_launcher=0 Include_tcltk=1
+    if ($LASTEXITCODE -ne 0) {
+        Abort "Python silent installer failed (exit $LASTEXITCODE)."
+    }
+
+    $found = Find-SystemPython
+    if (-not $found) {
+        Abort "Python installer completed but Python was not found in the registry afterwards."
+    }
+    return $found
 }
 
 # ── Directories ───────────────────────────────────────────────────────────────
@@ -173,7 +217,6 @@ $root      = (Resolve-Path -LiteralPath (
                   [System.IO.Directory]::CreateDirectory($InstallDir).FullName
               )).Path
 $obsDir    = Join-Path $root "obs-studio"
-$pythonDir = Join-Path $root "python"
 $ffmpegDir = Join-Path $root "ffmpeg"
 $venvDir   = Join-Path $root "venv"
 $iniFile   = Join-Path $root "obsapp-config.ini"
@@ -262,13 +305,12 @@ if (Test-Path (Join-Path $ffmpegDir "bin\ffmpeg.exe")) {
 Write-Step "Python"
 
 # Resolve the base python.exe we will use to create the venv.
-# Preference order: system-wide install (highest 3.12-3.30) > local embeddable.
+# Must be a full Python install (not embeddable) with tkinter available.
 $basePython = $null
 
-if (Test-Path (Join-Path $pythonDir "python.exe")) {
-    # Previously downloaded embeddable copy — reuse it.
-    $basePython = Join-Path $pythonDir "python.exe"
-    Write-Skip "Python (local embeddable at $basePython)"
+if (Test-Path (Join-Path $venvDir "Scripts\python.exe")) {
+    # Venv already exists — basePython is not needed; skip straight to venv step.
+    $basePython = "skip"
 } else {
     $sysPython = Find-SystemPython
     if ($sysPython) {
@@ -276,32 +318,10 @@ if (Test-Path (Join-Path $pythonDir "python.exe")) {
         $basePython = $sysPython
         Write-OK "Found system Python $v at $sysPython"
     } else {
-        # Download the embeddable distribution as a fallback.
-        Write-Host "    no suitable system Python found; downloading embeddable Python $PYTHON_EMBED_VER ..."
-        $pyUrl = "https://www.python.org/ftp/python/$PYTHON_EMBED_VER/python-$PYTHON_EMBED_VER-embed-amd64.zip"
-        $pyZip = Join-Path $tmp "python-embed.zip"
-        Save-File $pyUrl $pyZip
-        Write-Host "    extracting ..."
-        New-Item -ItemType Directory -Path $pythonDir -Force | Out-Null
-        Expand-Archive -Path $pyZip -DestinationPath $pythonDir -Force
-
-        # The embeddable distribution disables site-packages by default.
-        # Uncomment "import site" in the ._pth file to enable pip installs.
-        $pthFile = Get-ChildItem $pythonDir -Filter "*._pth" | Select-Object -First 1
-        if (-not $pthFile) { Abort "Could not find ._pth file in Python embeddable zip." }
-        $pthContent = Get-Content $pthFile.FullName -Raw
-        $pthContent = $pthContent -replace '#import site', 'import site'
-        Set-Content $pthFile.FullName $pthContent -NoNewline
-
-        # Bootstrap pip into the embeddable distribution.
-        Write-Host "    installing pip into embeddable Python ..."
-        $getPip = Join-Path $tmp "get-pip.py"
-        Save-File "https://bootstrap.pypa.io/get-pip.py" $getPip
-        & "$pythonDir\python.exe" $getPip --quiet
-        if ($LASTEXITCODE -ne 0) { Abort "pip bootstrap failed." }
-
-        $basePython = Join-Path $pythonDir "python.exe"
-        Write-OK "Python $PYTHON_EMBED_VER installed to $pythonDir"
+        Write-Host "    no suitable Python found; installing automatically ..."
+        $basePython = Install-Python $tmp
+        $v = & $basePython -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')" 2>$null
+        Write-OK "Python $v installed and found at $basePython"
     }
 }
 
@@ -400,10 +420,9 @@ Write-Host @"
 
 Done.  Installation layout:
   $root\
-    obs-studio\        OBS Studio portable
-    python\            Python $PYTHON_EMBED_VER embeddable (if no system Python was found)
-    ffmpeg\            FFmpeg
-    venv\              Python venv with OBSapp
+    obs-studio\        OBS Studio portable (if no system OBS was found)
+    ffmpeg\            FFmpeg (if no system FFmpeg was found on PATH)
+    venv\              Python venv with OBSapp and its dependencies
     obsapp-config.ini  edit to adjust paths if needed
     run-obsapp.bat     launch from the command line
 
