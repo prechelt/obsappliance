@@ -302,14 +302,23 @@ $pip    = Join-Path $venvDir "Scripts\pip.exe"
 
 Write-Step "FFmpeg"
 
+# $ffmpegExe is set here (used again in the config-file step below).
 if (Test-Path (Join-Path $ffmpegDir "bin\ffmpeg.exe")) {
-    Write-Skip "FFmpeg (found at $ffmpegDir\bin\ffmpeg.exe)"
+    $ffmpegExe = Join-Path $ffmpegDir "bin\ffmpeg.exe"
+    Write-Skip "FFmpeg (portable in $ffmpegDir)"
 } else {
-    $ffmpegZip = Join-Path $tmp "ffmpeg.zip"
-    Save-File $FFMPEG_URL $ffmpegZip
-    Write-Host "    extracting ..."
-    Expand-IntoDir $ffmpegZip $ffmpegDir
-    Write-OK "FFmpeg installed to $ffmpegDir"
+    $onPath = Get-Command ffmpeg -ErrorAction SilentlyContinue
+    if ($onPath) {
+        $ffmpegExe = $onPath.Source
+        Write-OK "Found FFmpeg on PATH at $ffmpegExe"
+    } else {
+        $ffmpegZip = Join-Path $tmp "ffmpeg.zip"
+        Save-File $FFMPEG_URL $ffmpegZip
+        Write-Host "    extracting ..."
+        Expand-IntoDir $ffmpegZip $ffmpegDir
+        $ffmpegExe = Join-Path $ffmpegDir "bin\ffmpeg.exe"
+        Write-OK "FFmpeg installed to $ffmpegDir"
+    }
 }
 
 # ── OBSapp ────────────────────────────────────────────────────────────────────
@@ -337,8 +346,6 @@ Write-OK "OBSapp installed"
 # ── Config file ───────────────────────────────────────────────────────────────
 
 Write-Step "Configuration"
-
-$ffmpegExe = Join-Path $ffmpegDir "bin\ffmpeg.exe"
 
 if (-not (Test-Path $iniFile)) {
     @"
