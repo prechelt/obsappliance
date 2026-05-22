@@ -174,6 +174,7 @@ Have a break.
 
 ## 5. Development steps
 
+At the moment, this is only for me and may not fit your setup at all.
 
 ### 5.1 On Dhaka: Initialize development
 
@@ -198,8 +199,6 @@ PYTHONPATH=src python -m obsapp.main tmp_obsappdir/obsapp-config.ini
 
 ### 5.4 Steps to do
 
-- Test "concatenate" functionality. Make it work fast for equal-sized, equally-coded videos.
-- Remove mentions of "use-case" in the code 
 - _make_text_frame(): make the font scaling work, it currently does not scale down long filenames.
 - Port to Linux
 - Port to macOS
