@@ -23,8 +23,7 @@ if TYPE_CHECKING:
 
 _EXPLANATION = (
     "Build an ordered list of MP4 files to join.\n"
-    "A short title frame (showing each file's name) is inserted before each part.\n"
-    "**Slow:** All parts are re-encoded to match the resolution and frame rate of the first file."
+    "A short title frame (showing each file's name) is inserted before each part."
 )
 
 

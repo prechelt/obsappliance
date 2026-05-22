@@ -58,7 +58,13 @@ def find_ffmpeg(ffmpeg_executable: str) -> str:
 # ---------------------------------------------------------------------------
 
 def probe_video(ffmpeg_path: str, input_path: Path) -> dict:
-    """Return a dict with keys: duration (float seconds), width, height, fps (float)."""
+    """Return a dict describing the first video (and audio) stream.
+
+    Keys always present:
+        duration (float, seconds), width (int), height (int), fps (float),
+        vcodec (str, e.g. "h264"), pix_fmt (str, e.g. "yuv420p"),
+        acodec (str | None — None when the file has no audio stream).
+    """
     ffprobe = _ffprobe_from_ffmpeg(ffmpeg_path)
     result = subprocess.run(
         [
@@ -89,7 +95,17 @@ def probe_video(ffmpeg_path: str, input_path: Path) -> dict:
     )
     num, den = fps_raw.split("/")
     fps = float(num) / float(den) if float(den) else float(FPS_DEFAULT)
-    return {"duration": duration, "width": width, "height": height, "fps": fps}
+    vcodec = video_stream["codec_name"]
+    pix_fmt = video_stream.get("pix_fmt", "yuv420p")
+    audio_stream = next(
+        (s for s in data["streams"] if s["codec_type"] == "audio"), None
+    )
+    acodec: str | None = audio_stream["codec_name"] if audio_stream else None
+    return {
+        "duration": duration,
+        "width": width, "height": height, "fps": fps,
+        "vcodec": vcodec, "pix_fmt": pix_fmt, "acodec": acodec,
+    }
 
 
 def _ffprobe_from_ffmpeg(ffmpeg_path: str) -> str:
@@ -311,6 +327,7 @@ def _make_text_frame(
     duration: float = 2.0,
     vcodec: str = "libx264",
     acodec: str = "aac",
+    pix_fmt: str = "yuv420p",
     audio: bool = False,
 ) -> None:
     """Generate a white frame with large black text.
@@ -321,6 +338,7 @@ def _make_text_frame(
 
     When audio=True a silent audio track is added using acodec, so the frame
     is compatible with audio-bearing input segments in the concat demuxer.
+    pix_fmt must match the pixel format of the segments it will be stitched with.
     """
     # Escape text for FFmpeg drawtext filter.
     safe_text = text.replace("'", "\\'").replace(":", "\\:")
@@ -347,6 +365,7 @@ def _make_text_frame(
             f":x={x_expr}:y=(h-text_h)/2"
         ),
         "-c:v", vcodec,
+        "-pix_fmt", pix_fmt,
     ]
     if vcodec == "libx264":
         cmd += ["-preset", "fast", "-crf", "23"]
@@ -356,6 +375,26 @@ def _make_text_frame(
         cmd += ["-an"]
     cmd += ["-movflags", "+faststart", str(out_path)]
     _run(cmd)
+
+
+def _copy_segment(
+    ffmpeg_path: str,
+    input_path: Path,
+    out_path: Path,
+    segment_progress_cb: Callable[[float], None] | None = None,
+) -> None:
+    """Stream-copy an entire file without re-encoding."""
+    cmd = [
+        ffmpeg_path, "-y",
+        "-i", str(input_path),
+        "-c", "copy",
+        "-movflags", "+faststart",
+        str(out_path),
+    ]
+    if segment_progress_cb is not None:
+        _run_with_progress(cmd, segment_progress_cb)
+    else:
+        _run(cmd)
 
 
 def _concat_segments(
@@ -416,8 +455,11 @@ def concatenate(
     """Concatenate videos, inserting a short title frame before each part.
 
     The title frame shows the filename (not the full path) of the upcoming part.
-    All inputs are re-encoded to a common libx264/aac format normalised to the
-    resolution and frame rate of the first file.
+
+    If all inputs share the same codec, resolution, fps, and pixel format, the
+    video data is stream-copied (no re-encoding, fast, lossless).  Otherwise
+    everything is re-encoded to libx264/aac normalised to the resolution and
+    frame rate of the first file.
 
     progress_callback, when provided, is called with a float in [0.0, 1.0]
     representing the overall progress.  It is called from the worker thread;
@@ -431,19 +473,32 @@ def concatenate(
         if progress_callback is not None:
             progress_callback(max(0.0, min(1.0, pct)))
 
-    # Probe the first file for target resolution and fps.
-    info = probe_video(ffmpeg_path, input_paths[0])
-    width, height, fps = info["width"], info["height"], info["fps"]
+    # Probe all inputs up front — needed for both the compatibility check and
+    # the duration-based progress denominator.
+    all_infos: list[dict] = [probe_video(ffmpeg_path, inp) for inp in input_paths]
+    durations: list[float] = [info["duration"] for info in all_infos]
 
-    # Probe all files for their durations so we can compute a progress denominator.
-    # Title frames each contribute CONCATENATE_FILENAMESLIDE_DURATION_SECS seconds
-    # to the total.
-    durations: list[float] = []
-    for inp in input_paths:
-        try:
-            durations.append(probe_video(ffmpeg_path, inp)["duration"])
-        except Exception:
-            durations.append(0.0)
+    ref = all_infos[0]
+    width, height, fps = ref["width"], ref["height"], ref["fps"]
+
+    # Decide whether we can stream-copy or must re-encode.
+    reencode = not _formats_compatible(all_infos)
+    if not reencode and ref["vcodec"] not in _ENCODER_FOR_CODEC:
+        # We can detect compatibility but cannot encode matching title frames
+        # for this codec — fall back to re-encoding everything.
+        reencode = True
+
+    if reencode:
+        title_vcodec  = "libx264"
+        title_acodec  = "aac"
+        title_pix_fmt = "yuv420p"
+        title_audio   = True
+    else:
+        title_vcodec  = _ENCODER_FOR_CODEC[ref["vcodec"]]
+        title_acodec  = ref["acodec"] or "aac"
+        title_pix_fmt = ref["pix_fmt"]
+        title_audio   = ref["acodec"] is not None
+
     total_seconds = (
         sum(durations)
         + len(input_paths) * CONCATENATE_FILENAMESLIDE_DURATION_SECS
@@ -461,40 +516,44 @@ def concatenate(
         for idx, inp in enumerate(input_paths):
             file_duration = durations[idx]
 
-            # Title frame — libx264/aac to match the re-encoded segments.
+            # Title frame — encoded to match segment format.
             frame_path = tmp / f"title_{idx:04d}.mp4"
             _make_text_frame(
                 ffmpeg_path, inp.name,
                 width=width, height=height, fps=fps,
                 out_path=frame_path,
                 duration=CONCATENATE_FILENAMESLIDE_DURATION_SECS,
-                vcodec="libx264",
-                acodec="aac",
-                audio=True,
+                vcodec=title_vcodec,
+                acodec=title_acodec,
+                pix_fmt=title_pix_fmt,
+                audio=title_audio,
             )
             completed_seconds += CONCATENATE_FILENAMESLIDE_DURATION_SECS
             _report(completed_seconds / total_seconds)
             segment_files.append(frame_path)
 
-            # Re-encode the input to the normalised format.
+            # Video segment — stream-copy or re-encode.
             seg_path = tmp / f"part_{idx:04d}.mp4"
             base_completed = completed_seconds
 
             def _seg_cb(elapsed: float, _base: float = base_completed) -> None:
                 _report((_base + elapsed) / total_seconds)
 
-            _extract_segment(
-                ffmpeg_path, inp, 0.0,
-                file_duration,
-                seg_path,
-                width=width, height=height, fps=fps,
-                segment_progress_cb=_seg_cb,
-            )
+            if reencode:
+                _extract_segment(
+                    ffmpeg_path, inp, 0.0, file_duration, seg_path,
+                    width=width, height=height, fps=fps,
+                    segment_progress_cb=_seg_cb,
+                )
+            else:
+                _copy_segment(ffmpeg_path, inp, seg_path,
+                              segment_progress_cb=_seg_cb)
+
             completed_seconds += file_duration
             _report(completed_seconds / total_seconds)
             segment_files.append(seg_path)
 
-        # Final stitch — stream-copy of all re-encoded segments (fast).
+        # Final stitch — stream-copy all segments into the output.
         _report(0.99)
         _concat_segments(ffmpeg_path, segment_files, output_path)
         _report(1.0)
@@ -505,6 +564,37 @@ def concatenate(
 # ---------------------------------------------------------------------------
 
 _FFMPEG_TIME_RE = re.compile(r"time=(\d+):(\d{2}):(\d{2}\.\d+)")
+
+# Maps ffprobe codec names to the corresponding FFmpeg encoder name.
+# Only codecs listed here support the stream-copy path; all others fall back
+# to libx264/aac re-encoding.
+_ENCODER_FOR_CODEC: dict[str, str] = {
+    "h264": "libx264",
+    "hevc": "libx265",
+}
+
+
+def _formats_compatible(infos: list[dict]) -> bool:
+    """Return True iff all probed files share codec, resolution, fps, and pix_fmt.
+
+    Files with differing attributes must be re-encoded to a common format before
+    concatenation.  fps is compared rounded to 3 decimal places to tolerate
+    trivial floating-point noise.
+    """
+    if len(infos) <= 1:
+        return True
+    ref = infos[0]
+    for info in infos[1:]:
+        if (
+            info["vcodec"]  != ref["vcodec"]
+            or info["acodec"]  != ref["acodec"]
+            or info["width"]   != ref["width"]
+            or info["height"]  != ref["height"]
+            or abs(info["fps"] - ref["fps"]) > 0.25
+            or info["pix_fmt"] != ref["pix_fmt"]
+        ):
+            return False
+    return True
 
 
 def _run(cmd: list[str]) -> None:
