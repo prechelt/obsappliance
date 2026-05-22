@@ -234,6 +234,29 @@ if (Test-Path (Join-Path $obsDir "bin\64bit\obs64.exe")) {
     }
 }
 
+# ── FFmpeg ────────────────────────────────────────────────────────────────────
+
+Write-Step "FFmpeg"
+
+# $ffmpegExe is set here (used again in the config-file step below).
+if (Test-Path (Join-Path $ffmpegDir "bin\ffmpeg.exe")) {
+    $ffmpegExe = Join-Path $ffmpegDir "bin\ffmpeg.exe"
+    Write-Skip "FFmpeg (portable in $ffmpegDir)"
+} else {
+    $onPath = Get-Command ffmpeg -ErrorAction SilentlyContinue
+    if ($onPath) {
+        $ffmpegExe = $onPath.Source
+        Write-OK "Found FFmpeg on PATH at $ffmpegExe"
+    } else {
+        $ffmpegZip = Join-Path $tmp "ffmpeg.zip"
+        Save-File $FFMPEG_URL $ffmpegZip
+        Write-Host "    extracting ..."
+        Expand-IntoDir $ffmpegZip $ffmpegDir
+        $ffmpegExe = Join-Path $ffmpegDir "bin\ffmpeg.exe"
+        Write-OK "FFmpeg installed to $ffmpegDir"
+    }
+}
+
 # ── Python ────────────────────────────────────────────────────────────────────
 
 Write-Step "Python"
@@ -297,29 +320,6 @@ if (Test-Path (Join-Path $venvDir "Scripts\python.exe")) {
 
 $python = Join-Path $venvDir "Scripts\python.exe"
 $pip    = Join-Path $venvDir "Scripts\pip.exe"
-
-# ── FFmpeg ────────────────────────────────────────────────────────────────────
-
-Write-Step "FFmpeg"
-
-# $ffmpegExe is set here (used again in the config-file step below).
-if (Test-Path (Join-Path $ffmpegDir "bin\ffmpeg.exe")) {
-    $ffmpegExe = Join-Path $ffmpegDir "bin\ffmpeg.exe"
-    Write-Skip "FFmpeg (portable in $ffmpegDir)"
-} else {
-    $onPath = Get-Command ffmpeg -ErrorAction SilentlyContinue
-    if ($onPath) {
-        $ffmpegExe = $onPath.Source
-        Write-OK "Found FFmpeg on PATH at $ffmpegExe"
-    } else {
-        $ffmpegZip = Join-Path $tmp "ffmpeg.zip"
-        Save-File $FFMPEG_URL $ffmpegZip
-        Write-Host "    extracting ..."
-        Expand-IntoDir $ffmpegZip $ffmpegDir
-        $ffmpegExe = Join-Path $ffmpegDir "bin\ffmpeg.exe"
-        Write-OK "FFmpeg installed to $ffmpegDir"
-    }
-}
 
 # ── OBSapp ────────────────────────────────────────────────────────────────────
 
