@@ -1,4 +1,4 @@
-"""Concatenate dialog – use-case 2c.
+"""Concatenate dialog.
 
 User builds an ordered list of MP4 files; OBSapp concatenates them into a
 single output file, inserting a short title frame (showing the filename)
@@ -28,8 +28,6 @@ _EXPLANATION = (
 
 
 class ConcatDialogFrame(ctk.CTkFrame):
-    """Dialog for use-case 2c (Concatenate videos)."""
-
     def __init__(self, parent: ctk.CTk | ctk.CTkFrame, app: App) -> None:
         super().__init__(parent, fg_color="transparent")
         self.app = app

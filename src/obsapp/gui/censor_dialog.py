@@ -1,4 +1,4 @@
-"""Censor dialog – use-case 2b.
+"""Censor dialog.
 
 User picks an MP4, specifies time ranges to delete, and OBSapp rewrites the
 file as <name>-censored.mp4 with each range replaced by a short info frame.
@@ -29,8 +29,6 @@ _EXPLANATION = (
 
 
 class CensorDialogFrame(ctk.CTkFrame):
-    """Dialog for use-case 2b (Censor video)."""
-
     def __init__(self, parent: ctk.CTk | ctk.CTkFrame, app: App) -> None:
         super().__init__(parent, fg_color="transparent")
         self.app = app

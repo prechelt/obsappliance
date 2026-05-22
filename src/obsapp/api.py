@@ -208,7 +208,7 @@ class Session:
         """Return [(friendly_name, device_id), ...]."""
         return self.obs.get_webcams()
 
-    # ── recording (use-case 2a) ───────────────────────────────────────
+    # ── recording ───────────────────────────────────────
 
     def start_recording(
         self,
@@ -321,7 +321,7 @@ class Session:
         _rename_with_retry(actual, target)
         return target
 
-    # ── censor (use-case 2b) ──────────────────────────────────────────
+    # ── censor ──────────────────────────────────────────
 
     def censor_video(
         self,
@@ -356,7 +356,7 @@ class Session:
         )
         return output_path
 
-    # ── concatenate (use-case 2c) ─────────────────────────────────────
+    # ── concatenate ─────────────────────────────────────
 
     def concatenate_videos(
         self,

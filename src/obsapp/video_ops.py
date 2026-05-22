@@ -166,7 +166,7 @@ def parse_range(s: str) -> tuple[float, float]:
 
 
 # ---------------------------------------------------------------------------
-# Censor operation  (use-case 2b)
+# Censor operation
 # ---------------------------------------------------------------------------
 
 def validate_censor_ranges(
@@ -429,7 +429,7 @@ def _concat_segments(
 
 
 # ---------------------------------------------------------------------------
-# Concatenate operation  (use-case 2c)
+# Concatenate operation
 # ---------------------------------------------------------------------------
 
 def validate_concat_inputs(

@@ -61,8 +61,6 @@ def _parse_pip_size(raw: object, default: int) -> int:
 
 
 class RecordDialogFrame(ctk.CTkFrame):
-    """Config dialog shown before recording starts (use-case 2a1)."""
-
     def __init__(self, parent: ctk.CTk | ctk.CTkFrame, app: App) -> None:
         super().__init__(parent, fg_color="transparent")
         self.app = app
