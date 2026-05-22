@@ -179,13 +179,12 @@ function Install-Python([string]$tmpDir) {
         $wingetCmd = "winget install --id `"Python.Python.3.$minor`" --silent --scope user --accept-package-agreements --accept-source-agreements"
         Write-Host "    running: $wingetCmd"
         & winget install --id "Python.Python.3.$minor" --silent --scope user --accept-package-agreements --accept-source-agreements
-        if ($LASTEXITCODE -eq 0) {
-            $found = Find-SystemPython
-            if ($found) { return $found }
-            Write-Host "    winget reported success but Python not found in registry; falling back ..." -ForegroundColor Yellow
-        } else {
-            Write-Host "    winget install failed (exit $LASTEXITCODE); falling back ..." -ForegroundColor Yellow
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "    winget exited with code $LASTEXITCODE (may still have succeeded; checking ...)" -ForegroundColor Yellow
         }
+        $found = Find-SystemPython
+        if ($found) { return $found }
+        Write-Host "    Python not found after winget; falling back to direct download ..." -ForegroundColor Yellow
     }
 
     # ── Official silent installer ──────────────────────────────────────────────
@@ -196,12 +195,13 @@ function Install-Python([string]$tmpDir) {
 
     Write-Host "    running Python installer silently (user-mode, no admin needed) ..."
     & $pyInstaller /quiet InstallAllUsers=0 PrependPath=0 Include_launcher=0 Include_tcltk=1
-    $installerExit = $LASTEXITCODE
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "    Python installer exited with code $LASTEXITCODE (may still have succeeded; checking ...)" -ForegroundColor Yellow
+    }
 
     $found = Find-SystemPython
     if (-not $found) {
-        Abort "Python silent installer failed (exit $installerExit) and Python was not found afterwards."
-    }
+        Abort "Python was not found after the silent installer (exit $LASTEXITCODE)."
     }
     return $found
 }
