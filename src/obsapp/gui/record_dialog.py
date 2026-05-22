@@ -162,12 +162,12 @@ class RecordDialogFrame(ctk.CTkFrame):
         file_row = ctk.CTkFrame(self, fg_color="transparent")
         file_row.pack(padx=PADDING, fill="x")
 
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
         stored = defaults.get("target_file", "")
         if stored:
-            stored_path = Path(stored)
-            if stored_path.exists():
-                stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
-                stored = str(stored_path.with_stem(stamp))
+            stored = str(Path(stored).with_stem(stamp))
+        else:
+            stored = stamp + ".mp4"
         self._file_var = ctk.StringVar(value=stored)
         self._file_entry = ctk.CTkEntry(file_row, textvariable=self._file_var)
         self._file_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
@@ -206,6 +206,12 @@ class RecordDialogFrame(ctk.CTkFrame):
         else:
             self._pip_frame.pack(after=self._webcam_menu, padx=PADDING, fill="x", pady=(8, 0))
             self._pip_draw()
+        self.after(0, self._refit_window)
+
+    def _refit_window(self) -> None:
+        """Re-measure and resize the window after the layout has changed."""
+        min_w = getattr(self, "_min_w", 2 * PADDING + 400)
+        fit_window(self.app, self, min_w)
 
     def _pip_draw(self) -> None:
         """Redraw the 3×3 position-picker grid on the PiP canvas."""
@@ -247,6 +253,7 @@ class RecordDialogFrame(ctk.CTkFrame):
         browse_w = 80
         browse_padx = 5
         min_w = entry_target_w + browse_w + browse_padx + 2 * PADDING
+        self._min_w = min_w
         fit_window(self.app, self, min_w)
 
     def _browse(self) -> None:
