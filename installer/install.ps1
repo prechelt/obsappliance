@@ -412,9 +412,14 @@ Write-OK "Shortcut created at $lnkPath"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 
+} catch {
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    $script:_aborted = $true
 } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
+
+if ($script:_aborted) { return }
 
 Write-Host @"
 
