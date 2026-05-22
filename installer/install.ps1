@@ -67,8 +67,7 @@ function Write-Skip([string]$msg) {
     Write-Host "    skip: $msg (already present)" -ForegroundColor Yellow
 }
 function Abort([string]$msg) {
-    Write-Host "`nERROR: $msg" -ForegroundColor Red
-    exit 1
+    throw "`nERROR: $msg"
 }
 
 function Get-GitHubLatestTag([string]$repo) {
@@ -310,6 +309,7 @@ $basePython = $null
 
 if (Test-Path (Join-Path $venvDir "Scripts\python.exe")) {
     # Venv already exists — basePython is not needed; skip straight to venv step.
+    Write-Skip "Python (there is even a venv already)"
     $basePython = "skip"
 } else {
     $sysPython = Find-SystemPython
