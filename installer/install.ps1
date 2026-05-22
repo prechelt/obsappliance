@@ -67,7 +67,8 @@ function Write-Skip([string]$msg) {
     Write-Host "    skip: $msg (already present)" -ForegroundColor Yellow
 }
 function Abort([string]$msg) {
-    throw "`nERROR: $msg"
+    $script:_abortMessage = $msg
+    throw "abort"
 }
 
 function Get-GitHubLatestTag([string]$repo) {
@@ -212,6 +213,10 @@ function Install-Python([string]$tmpDir) {
 # differ from $PWD when the script runs as a scriptblock (e.g. piped from irm).
 $InstallDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($InstallDir)
 
+$tmp = $null   # initialised inside try so finally can safely remove it
+
+try {
+
 $root      = (Resolve-Path -LiteralPath (
                   [System.IO.Directory]::CreateDirectory($InstallDir).FullName
               )).Path
@@ -232,8 +237,6 @@ if (-not $isUpdate) {
 
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "obsapp-install-$PID"
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-
-try {
 
 # ── OBS Studio ────────────────────────────────────────────────────────────────
 
@@ -413,10 +416,14 @@ Write-OK "Shortcut created at $lnkPath"
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 } catch {
-    Write-Host $_.Exception.Message -ForegroundColor Red
+    if ($script:_abortMessage) {
+        Write-Host "`nERROR: $script:_abortMessage" -ForegroundColor Red
+    } else {
+        Write-Host "`nUnexpected error: $_" -ForegroundColor Red
+    }
     $script:_aborted = $true
 } finally {
-    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    if ($tmp) { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
 if ($script:_aborted) { return }
