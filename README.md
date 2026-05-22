@@ -51,7 +51,7 @@ Create an empty directory anywhere you like (e.g. in your home directory).
 Change into it.
 Then call
 ```powershell
-.\installer\install.ps1 -InstallDir .
+& ([scriptblock]::Create((Invoke-RestMethod 'https://raw.githubusercontent.com/prechelt/obsappliance/main/installer/install.ps1'))) -InstallDir .
 ```
 
 Downloads OBS Studio, FFmpeg, and Python into that directory
