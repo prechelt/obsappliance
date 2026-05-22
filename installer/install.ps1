@@ -72,7 +72,7 @@ function Abort([string]$msg) {
 
 function Get-GitHubLatestTag([string]$repo) {
     $r = Get-GitHubLatestRelease $repo
-    return $r?.tag_name
+    if ($r) { return $r.tag_name } else { return $null }
 }
 
 function Save-File([string]$url, [string]$dest) {
@@ -124,7 +124,7 @@ function Get-GitHubLatestRelease([string]$repo) {
 # $pattern (a wildcard string), or $null if none matches.
 function Get-ReleaseAssetUrl($release, [string]$pattern) {
     $asset = $release.assets | Where-Object { $_.name -like $pattern } | Select-Object -First 1
-    return $asset?.browser_download_url
+    if ($asset) { return $asset.browser_download_url } else { return $null }
 }
 
 # Search HKLM and HKCU for Python 3.x (x in $PYTHON_MIN_MINOR..$PYTHON_MAX_MINOR).
