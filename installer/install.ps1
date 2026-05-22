@@ -71,12 +71,8 @@ function Abort([string]$msg) {
 }
 
 function Get-GitHubLatestTag([string]$repo) {
-    try {
-        $r = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest"
-        return $r.tag_name
-    } catch {
-        return $null
-    }
+    $r = Get-GitHubLatestRelease $repo
+    return $r?.tag_name
 }
 
 function Save-File([string]$url, [string]$dest) {
@@ -102,6 +98,33 @@ function Expand-IntoDir([string]$zip, [string]$targetDir) {
 
 function Get-FileVersion([string]$path) {
     return [version](Get-Item $path).VersionInfo.ProductVersion.Split('-')[0]
+}
+
+# Return the path to obs64.exe if a sufficient system-wide OBS installation is
+# found in the standard Program Files locations, or $null otherwise.
+function Find-SystemOBS {
+    foreach ($base in @("$env:ProgramFiles\obs-studio",
+                         "${env:ProgramFiles(x86)}\obs-studio")) {
+        $exe = Join-Path $base "bin\64bit\obs64.exe"
+        if (Test-Path $exe) { return $exe }
+    }
+    return $null
+}
+
+# Return the GitHub release API object for the latest release of $repo, or $null.
+function Get-GitHubLatestRelease([string]$repo) {
+    try {
+        return Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest"
+    } catch {
+        return $null
+    }
+}
+
+# Return the browser_download_url of the first release asset whose name matches
+# $pattern (a wildcard string), or $null if none matches.
+function Get-ReleaseAssetUrl($release, [string]$pattern) {
+    $asset = $release.assets | Where-Object { $_.name -like $pattern } | Select-Object -First 1
+    return $asset?.browser_download_url
 }
 
 # Search HKLM and HKCU for Python 3.x (x in $PYTHON_MIN_MINOR..$PYTHON_MAX_MINOR).
@@ -174,24 +197,41 @@ try {
 
 Write-Step "OBS Studio"
 
+# $obsExe is set here (used again in the config-file step below).
 if (Test-Path (Join-Path $obsDir "bin\64bit\obs64.exe")) {
-    $v = Get-FileVersion (Join-Path $obsDir "bin\64bit\obs64.exe")
+    $obsExe = Join-Path $obsDir "bin\64bit\obs64.exe"
+    $v = Get-FileVersion $obsExe
     if ($v -lt $OBS_MIN_VER) {
         Abort "Installed OBS ($v) is older than the required minimum ($OBS_MIN_VER).`nDelete '$obsDir' and re-run to download a fresh copy."
     }
-    Write-Skip "OBS $v"
+    Write-Skip "OBS $v (portable in $obsDir)"
 } else {
-    $obsTag = Get-GitHubLatestTag $OBS_REPO
-    if (-not $obsTag) { 
-        Abort "Could not determine latest OBS release from GitHub. Exiting." 
+    $sysObs = Find-SystemOBS
+    if ($sysObs) {
+        $v = Get-FileVersion $sysObs
+        if ($v -lt $OBS_MIN_VER) {
+            Abort "System OBS ($v at $sysObs) is older than the required minimum ($OBS_MIN_VER).`nPlease update OBS Studio and re-run."
+        }
+        $obsExe = $sysObs
+        Write-OK "Found system OBS $v at $sysObs"
+    } else {
+        $obsRelease = Get-GitHubLatestRelease $OBS_REPO
+        if (-not $obsRelease) {
+            Abort "Could not determine latest OBS release from GitHub. Exiting."
+        }
+        $obsTag = $obsRelease.tag_name
+        $obsVer = $obsTag.TrimStart('v')
+        $obsUrl = Get-ReleaseAssetUrl $obsRelease "OBS-Studio-*-Windows.zip"
+        if (-not $obsUrl) {
+            Abort "Could not find a Windows ZIP asset in OBS release $obsTag."
+        }
+        $obsZip = Join-Path $tmp "obs.zip"
+        Save-File $obsUrl $obsZip
+        Write-Host "    extracting ..."
+        Expand-IntoDir $obsZip $obsDir
+        $obsExe = Join-Path $obsDir "bin\64bit\obs64.exe"
+        Write-OK "OBS $obsVer installed to $obsDir"
     }
-    $obsVer = $obsTag.TrimStart('v')
-    $obsUrl = "https://github.com/$OBS_REPO/releases/download/$obsTag/OBS-Studio-$obsVer-Windows.zip"
-    $obsZip = Join-Path $tmp "obs.zip"
-    Save-File $obsUrl $obsZip
-    Write-Host "    extracting ..."
-    Expand-IntoDir $obsZip $obsDir
-    Write-OK "OBS $obsVer installed to $obsDir"
 }
 
 # ── Python ────────────────────────────────────────────────────────────────────
@@ -298,7 +338,6 @@ Write-OK "OBSapp installed"
 
 Write-Step "Configuration"
 
-$obsExe    = Join-Path $obsDir    "bin\64bit\obs64.exe"
 $ffmpegExe = Join-Path $ffmpegDir "bin\ffmpeg.exe"
 
 if (-not (Test-Path $iniFile)) {
