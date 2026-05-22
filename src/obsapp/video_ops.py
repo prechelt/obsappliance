@@ -232,9 +232,25 @@ def censor(
     ranges must be sorted by start time and non-overlapping.
     Each censored range is replaced by a short white frame with text
     "<range> deleted", then all pieces are concatenated.
+
+    Kept segments are stream-copied when the input codec is known to FFmpeg's
+    encoder map (e.g. H.264); otherwise they are re-encoded to libx264/aac.
+    Replacement frames are always encoded to match the kept-segment format.
     """
     info = probe_video(ffmpeg_path, input_path)
     total_duration = info["duration"]
+
+    copy = info["vcodec"] in _ENCODER_FOR_CODEC
+    if copy:
+        frame_vcodec  = _ENCODER_FOR_CODEC[info["vcodec"]]
+        frame_acodec  = info["acodec"] or "aac"
+        frame_pix_fmt = info["pix_fmt"]
+        frame_audio   = info["acodec"] is not None
+    else:
+        frame_vcodec  = "libx264"
+        frame_acodec  = "aac"
+        frame_pix_fmt = "yuv420p"
+        frame_audio   = True
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
@@ -249,7 +265,7 @@ def censor(
                 seg_path = tmp / f"seg_{seg_idx:04d}.mp4"
                 _extract_segment(
                     ffmpeg_path, input_path, cursor, censor_start, seg_path,
-                    width=width, height=height, fps=fps,
+                    width=width, height=height, fps=fps, copy=copy,
                 )
                 segment_files.append(seg_path)
                 seg_idx += 1
@@ -261,6 +277,10 @@ def censor(
                 width=width, height=height, fps=fps,
                 out_path=frame_path,
                 duration=CENSORING_REPLACEMENTSLIDE_DURATION_SECS,
+                vcodec=frame_vcodec,
+                acodec=frame_acodec,
+                pix_fmt=frame_pix_fmt,
+                audio=frame_audio,
             )
             segment_files.append(frame_path)
             seg_idx += 1
@@ -272,7 +292,7 @@ def censor(
             seg_path = tmp / f"seg_{seg_idx:04d}.mp4"
             _extract_segment(
                 ffmpeg_path, input_path, cursor, total_duration, seg_path,
-                width=width, height=height, fps=fps,
+                width=width, height=height, fps=fps, copy=copy,
             )
             segment_files.append(seg_path)
 
@@ -287,29 +307,43 @@ def _extract_segment(
     end: float,
     out_path: Path,
     *,
-    width: int,
-    height: int,
-    fps: float,
+    width: int = 0,
+    height: int = 0,
+    fps: float = 0.0,
+    copy: bool = False,
     segment_progress_cb: Callable[[float], None] | None = None,
 ) -> None:
+    """Extract [start, end) from input_path into out_path.
+
+    When copy=True the stream is copied without re-encoding (fast, lossless).
+    width/height/fps are ignored in that case.  Note that stream-copy seeks to
+    the nearest keyframe, so cut points are approximate.
+
+    When copy=False (default) the segment is re-encoded to libx264/aac,
+    scaled and padded to width×height at fps.
+    """
     duration = end - start
     cmd = [
         ffmpeg_path, "-y",
         "-ss", f"{start:.3f}",
         "-i", str(input_path),
         "-t", f"{duration:.3f}",
-        "-vf", (
-            # Scale to fit within target dimensions preserving aspect ratio,
-            # then pad to exact target size with black bars (letterbox/pillarbox).
-            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,"
-            f"fps={fps:.3f}"
-        ),
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-        "-c:a", "aac", "-b:a", "128k",
-        "-movflags", "+faststart",
-        str(out_path),
     ]
+    if copy:
+        cmd += ["-c", "copy"]
+    else:
+        cmd += [
+            "-vf", (
+                # Scale to fit within target dimensions preserving aspect ratio,
+                # then pad to exact target size with black bars (letterbox/pillarbox).
+                f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,"
+                f"fps={fps:.3f}"
+            ),
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+        ]
+    cmd += ["-movflags", "+faststart", str(out_path)]
     if segment_progress_cb is not None:
         _run_with_progress(cmd, segment_progress_cb)
     else:
