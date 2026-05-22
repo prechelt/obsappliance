@@ -150,19 +150,19 @@ Here is an example how it may look in an installed version of obsapp on Windows:
 ```ini
 [obsappliance]
 obs_executable=C:\Tools\obsapp\obs-studio\bin\64bit\obs64.exe
-ffmpeg_executable=C:\sw\ffmpeg20260323\bin\ffmpeg.exe
-venv_dir=./venv
+ffmpeg_executable=C:\Tools\obsapp\ffmpeg\bin\ffmpeg.exe
+venv_dir=C:\Tools\obsapp\venv
 # The obs_config_dir will be the 'obs-config' subdirectory of the present file's location.
 ```
 When obsapp starts, it immediately changes into the obsapp directory, so that the config file
 can use relative paths, so that the obsapp directory can be relocated easily.
 
-Here is a variant for a development setup on Windows where all parts are in a standard place:
+Here is a manually created variant for a development setup on Windows where all parts are in a standard place:
 ```ini
 [obsappliance]
 obs_executable=c:\Program Files\obs-studio\bin\64bit\obs64.exe
 ffmpeg_executable=C:\sw\ffmpeg20260323\bin\ffmpeg.exe
-venv_dir=c:/venvs/obsapp
+venv_dir=c:\venvs\obsapp
 # The obs_config_dir will be the 'obs-config' subdirectory of the present file's location.
 ```
 
