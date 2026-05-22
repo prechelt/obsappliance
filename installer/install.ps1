@@ -348,9 +348,13 @@ $pip    = Join-Path $venvDir "Scripts\pip.exe"
 
 Write-Step "OBSapp"
 
+$pipFlags = "--upgrade"
 if ($Current) {
     $obsappUrl = "https://github.com/$OBSAPP_REPO/archive/refs/heads/main.zip"
     Write-Host "    installing from main branch ..."
+    # --force-reinstall ensures the latest commit is installed even when the
+    # version number in pyproject.toml has not been bumped.
+    $pipFlags = "--upgrade --force-reinstall"
 } else {
     $tag = Get-GitHubLatestTag $OBSAPP_REPO
     if ($tag) {
@@ -359,10 +363,11 @@ if ($Current) {
     } else {
         Write-Host "    no release found; falling back to main branch ..." -ForegroundColor Yellow
         $obsappUrl = "https://github.com/$OBSAPP_REPO/archive/refs/heads/main.zip"
+        $pipFlags = "--upgrade --force-reinstall"
     }
 }
 
-& $pip install --upgrade $obsappUrl --quiet
+& $pip install $pipFlags.Split() $obsappUrl --quiet
 if ($LASTEXITCODE -ne 0) { Abort "OBSapp installation via pip failed." }
 Write-OK "OBSapp installed"
 
