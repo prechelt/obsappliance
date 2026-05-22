@@ -80,7 +80,7 @@ class App(ctk.CTk):
                 self._current_frame.destroy()
                 self._current_frame = None
             loading = ctk.CTkLabel(
-                self, text="Starting OBS Studio…",
+                self, text="Starting OBS Studio…  (may take 10 seconds)",
                 font=ctk.CTkFont(size=14),
             )
             loading.pack(padx=PADDING, pady=PADDING)

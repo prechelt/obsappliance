@@ -6,128 +6,106 @@ We use recent versions of OBS (V.30 or younger).
 
 Still in early development and not ready for use.
 
-## 1. Use cases
+## 1. Screenshots
+
+### 1.1 Home
+
+![Home dialog](docs/screenshots/home.png)
+
+### 1.2 Record
+
+![Record dialog](docs/screenshots/record.png)
+
+If you record webcam video, it will be laid over the desktop recording in PiP (picture in picture) fashion.
+Put it in an area on the screen where you rarely expect important things to happen. 
+
+![Recording controls](docs/screenshots/record_stop.png)
+
+You can pause and resume the video at any time, e.g., when you are about to do something
+you do not want to appear in the video (e.g. read your email).
+
+### 1.3 Censor video
+
+If you forgot to pause the recording and have recorded something private,
+you can cut it out after the fact: Find suitable from--to timestamps and enter them
+in the "censor" dialog.
+
+If a clock is visible in the recording, this becomees a lot easier if you manage to note down the 
+wall clock time during the recording.
+
+![Censor dialog](docs/screenshots/censor.png)
+
+### 1.4 Concatenate videos
+
+If your session has a second (third, fourth) part after the recording,
+you can record this separately and then join the recordings via the "concatenate" dialog:
+
+![Concatenate dialog](docs/screenshots/concatenate.png)
 
 
-### 1.1 Overview
+## 2. Installation
 
-1. User activates OBSapp bootstrap for installation
-2. User starts OBSapp
-3. Config: User selects Monitor, Microphone (or none), Webcam (or none), target directory
-4. OBSapp starts recording
-5. User can pause/unpause the recording multiple times
-6. User stops recording
-7. OBSapp writes video file to target directory
-8. OBSapp menu also offers censoring parts of the video or uploading the video
+### 2.1 Windows
 
-Next uses will start at step 2 and will offer the values of step 3 as defaults.
+Create an empty directory anywhere you like (e.g. in your home directory).
+Change into it.
+Then call
+```powershell
+.\installer\install.ps1 -InstallDir .
+```
 
+Downloads OBS Studio, FFmpeg, and Python into that directory
+(unless suitable versions are found in their usual locations),
+then installs OBSapp and creates a desktop shortcut.
+A launcher is written into the install directory as `run-obsapp.bat`.
+No administrator rights required.
 
-### 1.2 OBSapp bootstrap
+### 2.2 macOS
 
-1. User starts the OBSapp installer command
-2. Installer checks if a current OBS Studio (at least V30.2) is present on the machine.
-   If yes, places a starter script in the `$OBSAPPDIR/obsstudio` dir.
-3. If not, downloads a portable version of OBS and places it (and a starter script) in `$OBSAPPDIR/obsstudio`.
-4. Ditto for a suitable version of Python into `$OBSAPPDIR/python`. We require at least Python 3.10.
-5. Installer places OBSapp code into `$OBSAPPDIR/obsapp`
-6. Installer creates venv for OBSapp in `$OBSAPPDIR/venv` and installs the dependencies listed in `pyproject.toml`
-7. Installer places OBSapp icon on desktop. Find a generic free red recording dot icon for that purpose.
+[Homebrew](https://brew.sh) 
+must be installed first.
 
+```bash
+bash installer/install.sh
+```
 
-### 1.3 OBSapp use
+Installs OBS Studio, FFmpeg, and Python via Homebrew (no sudo needed), or,
+if suitable versions are found in the PATH, uses those.
 
-General GUI rules:
-- All windows have ~2 em padding on all sides.
-- OBS is started lazily (on first need) and shut down when OBSapp exits (or crashes).
+Installs OBSapp into `~/.local/share/obsapp/venv` and !!!. 
+A launcher is placed at `~/.local/bin/obsapp` and a shortcut at `~/Desktop/OBSapp.app`.
 
-1. OBSapp starts and presents the main GUI: an explanation text ("((explanation here))" for now)
-   above a pulldown menu with entries:
-   "Record...", "Concatenate videos...", "Censor video...", "Upload video...", "Exit".
-   All subdialogs appear in the same window (which changes its size) and return to the main GUI when done.
-2. User chooses an entry and gets sent to variant 2a, 2b, 2c, 2d, or 2e respectively.
+### 2.3 Linux
 
-Variants:
+```bash
+bash installer/install.sh
+```
 
-**2a. User chooses "Record...":**
-2a1. OBSapp presents a dialog with four rows and buttons:
-   - "Which screen to record:" pulldown of available screens
-   - "Which microphone to record:" pulldown of available mics (or "\<no audio\>")
-   - "Which webcam to record:" pulldown of available webcams (or "\<no webcam\>")
-   - "Target MP4 file:" text field (initially empty) + file-selector button.
-     If the chosen file already exists, warn; "OK" overwrites, "Cancel" returns to this dialog.
-   - Buttons "Record", "Cancel"
-2a2. User fills in dialog, then selects "Record".
-2a3. OBSapp persists the dialog entries in a JSON file to offer them as defaults in the next run.
-2a4. OBSapp starts OBS (if not already running), applies the config, starts recording,
-   and shows the recording GUI: a small window with two buttons: "Pause" and "Stop".
-2a5. "Pause" pauses recording; button label changes to "Resume". "Resume" resumes; label changes back.
-2a6. "Stop" pauses, asks for confirmation.
-   On confirm: stops recording, returns to main GUI.
-   On cancel: unpauses recording, returns to recording GUI.
+Installs OBS Studio, FFmpeg, and Python via the system package manager
+(apt / dnf / pacman / zypper) if they do not yet exist; `sudo` is required for that step.
+OBSapp goes into `~/.local/share/obsapp/venv` and !!!.
+A launcher is placed at `~/.local/bin/obsapp` and a desktop entry at
+`~/.local/share/applications/obsapp.desktop`.
 
-**2b. User chooses "Censor video...":**
-2b1. OBSapp shows a dialog with:
-     - Explanation text at top.
-     - MP4 file name text field + file-chooser button.
-     - A scrollable text area (initially ~5 lines tall) for time ranges, one per line.
-       Format: `M:SS-M:SS` or `H:MM:SS-H:MM:SS` (whole seconds only).
-       Example: "0:57-1:02" means seconds 57–62 will be cut and replaced by a 1-second white frame
-       with large black text "0:57-1:02 deleted". The output video is shorter than the input.
-     - Buttons "OK", "Cancel".
-     On "OK": validate ranges (no overlaps, within video duration, valid format).
-     If invalid, show a message window listing the problems with an "OK" button; return to this dialog.
-     (Perform replacements in reverse-sorted order back-to-front.)
-2b2. OBSapp rewrites xyz.mp4 into xyz-censored.mp4 with each censored range removed
-     and replaced by its info frame.
-2b3. Returns to main GUI. ("Cancel" returns without rewriting.)
+### 2.4 Updating OBSapp
 
-**2c. User chooses "Concatenate videos...":**
-2c1. OBSapp presents a dialog with:
-   - Explanation text at top.
-   - A scrollable text area (initially ~5 lines tall) showing the file list, one path per line.
-   - "Next input file:" text field + file-selector button.
-   - "Output file:" text field + file-selector button.
-   - Buttons "Add file", "DONE", "Cancel".
-2c2. User enters a filepath and clicks "Add file"; OBSapp appends it to the list. Repeat ad libitum.
-2c3. User clicks "DONE".
-2c4. OBSapp validates that all input files exist and are compatible (same resolution, codec, frame rate).
-   If not, show a message window listing the problems with an "OK" button; return to this dialog.
-2c5. OBSapp writes the concatenated video to the output file.
-     Before each part (including the first), it inserts a short white frame with large black text
-     stating the file name (not path) of the upcoming part.
-2c6. Returns to main GUI. ("Cancel" discards the list and returns without concatenating.)
+Re-run the same install command. 
+OBS Studio, FFmpeg, and system packages are left untouched; only OBSapp is reinstalled.  
 
-**2d. User chooses "Upload video...":**
-Shows a message window saying "Not implemented yet" with an "OK" button. Returns to main GUI.
-
-**2e. User chooses "Exit":**
-OBSapp shuts down OBS (if running) and terminates.
-
-
-
-## 2. Non-functional properties
-
-- Works on Windows 11, macOS, Linux (those distros that SW developers tend to have)
-- Nothing ever requires superuser rights
-- Recording consumes only modest amounts of CPU and memory so as not to disturb the human's work.
-  In particular, the frame rate is 8 fps because smooth movement is unimportant.
-- The entire installation is a single file tree in $HOME and is readily movable
-  (i.e. uses only relative paths internally).
+To install from the `main` branch instead of the latest release, 
+add `--current` (Linux/macOS) or `-Current` (Windows).
 
 
 ## 3. Architecture
 
+
 ### 3.1 Base Technology
 
-- **Installation** — bootstrap scripts (`install.sh` for Linux/macOS, `install.ps1` for Windows)
-  download a portable OBS Studio (if needed), FFmpeg (if needed), Python (if needed), 
-  and the OBSapp package (always)
-  into a single directory tree in the user's home directory. No superuser rights required.
+- **Installation** is via bootstrap scripts `install.sh` for Linux/macOS and `install.ps1` for Windows.
 - **obsappliance** is a small Python application with a desktop GUI that glues together the
   powerful capabilities of OBS Studio (video recording) and FFmpeg (video file handling).
 - **OBS Studio** — used as the recording engine (screen capture, mic/webcam input,
-  hardware encoder detection, pause/resume). Requires OBS V30 or newer.
+  hardware encoder detection, pause/resume). Requires OBS V28 or newer.
 - **FFmpeg** — used for video editing (censor, concatenate, text-frame generation).
 - **CustomTkinter** — Python GUI toolkit providing a modern look on all platforms.
 - **obs-websocket** — built into OBS 28+, used for all runtime control
@@ -162,17 +140,16 @@ OBSapp shuts down OBS (if running) and terminates.
   pixels on HiDPI displays; every such value must be divided by
   `app._get_window_scaling()` before being passed to `geometry()` or `minsize()`.
 
+### 3.3 Configuration
 
-## 4. Configuration
-
-`main.py` is called with a single argument, an `.ini` config file.
+OBSappliance's `main.py` is called with a single argument, an `.ini` config file.
 Its directory is the obsapp directory.
 The OBS config files that obsapp creates dynamically will live in it.
-Python, the Python venv, and OBS Studio may live in that directory or elsewhere.
-Here is an example how it may look in an installed version of obsapp:
+Python, the Python venv, OBS Studio, and FFmpeg may live in that directory or elsewhere.
+Here is an example how it may look in an installed version of obsapp on Windows:
 ```ini
 [obsappliance]
-obs_executable=./obsstudio/bin/64bit/obs64.exe
+obs_executable=C:\Tools\obsapp\obs-studio\bin\64bit\obs64.exe
 ffmpeg_executable=C:\sw\ffmpeg20260323\bin\ffmpeg.exe
 venv_dir=./venv
 # The obs_config_dir will be the 'obs-config' subdirectory of the present file's location.
@@ -183,19 +160,26 @@ can use relative paths, so that the obsapp directory can be relocated easily.
 Here is a variant for a development setup on Windows where all parts are in a standard place:
 ```ini
 [obsappliance]
-obs_executable=c:/Program Files/obs-studio/bin/64bit/obs64.exe
-ffmpeg_executable=C:/sw/ffmpeg20260323/bin/ffmpeg.exe
+obs_executable=c:\Program Files\obs-studio\bin\64bit\obs64.exe
+ffmpeg_executable=C:\sw\ffmpeg20260323\bin\ffmpeg.exe
 venv_dir=c:/venvs/obsapp
 # The obs_config_dir will be the 'obs-config' subdirectory of the present file's location.
 ```
 
 
-## 5. Remaining future development steps
+## 4. This section is intentionally left empty
+
+Have a break.
+
+
+## 5. Development steps
 
 
 ### 5.1 On Dhaka: Initialize development
 
-Initialize development from a `pwsh` by
+In our development so far, OBSappliance runs on Windows, so it needs a
+Windows venv. 
+Therefore, we initialize development from a `pwsh`:
 ```
 cd c:/ws/gh/obsappliance
 c:\venv\obsapp\Scripts\Activate.ps1
@@ -214,16 +198,14 @@ PYTHONPATH=src python -m obsapp.main tmp_obsappdir/obsapp-config.ini
 
 ### 5.4 Steps to do
 
-- Proper audio level
 - Test "concatenate" functionality. Make it work fast for equal-sized, equally-coded videos.
-- Determine window sizes in the natural manner: based on content sizes??
+- Remove mentions of "use-case" in the code 
 - _make_text_frame(): make the font scaling work, it currently does not scale down long filenames.
-- Revise the installer to use obsapp-config.ini rather than the current fixed directory-shape convention.
 - Port to Linux
 - Port to macOS
 
 
 ### 6. Next development step
 
-- Adjust audio noise gate level (must be lower)
+- Test Windows installer
 
