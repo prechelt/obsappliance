@@ -141,6 +141,11 @@ function Find-SystemPython {
 
 # ── Directories ───────────────────────────────────────────────────────────────
 
+# Resolve $InstallDir against PowerShell's $PWD before passing to .NET, because
+# .NET resolves relative paths against [Environment]::CurrentDirectory which can
+# differ from $PWD when the script runs as a scriptblock (e.g. piped from irm).
+$InstallDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($InstallDir)
+
 $root      = (Resolve-Path -LiteralPath (
                   [System.IO.Directory]::CreateDirectory($InstallDir).FullName
               )).Path
