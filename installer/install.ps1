@@ -44,10 +44,12 @@ $OBSAPP_REPO  = "prechelt/obsappliance"
 $OBS_REPO     = "obsproject/obs-studio"
 $OBS_MIN_VER  = [version]"28.0"
 
-# Python embeddable release.  Bump the patch version when a newer 3.12.x ships.
-# The minor version (312) must match the ._pth filename inside the zip.
-$PYTHON_VER   = "3.12.10"
-$PYTHON_MINOR = "312"        # used to locate python312._pth inside the zip
+# Python: accepted minor version range for a system-wide Python.
+# The embeddable fallback is pinned to a specific release.
+$PYTHON_MIN_MINOR = 12   # 3.12
+$PYTHON_MAX_MINOR = 30   # 3.30 (upper bound, adjust as needed)
+$PYTHON_EMBED_VER = "3.12.10"
+$PYTHON_EMBED_MINOR = "312"   # used to locate python312._pth inside the zip
 
 # BtbN provides a stable "latest" permalink for FFmpeg GPL Windows builds.
 $FFMPEG_URL   = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
@@ -102,6 +104,41 @@ function Get-FileVersion([string]$path) {
     return [version](Get-Item $path).VersionInfo.ProductVersion.Split('-')[0]
 }
 
+# Search HKLM and HKCU for Python 3.x (x in $PYTHON_MIN_MINOR..$PYTHON_MAX_MINOR).
+# Returns the path to python.exe for the highest version found, or $null.
+function Find-SystemPython {
+    $best    = $null
+    $bestVer = $null
+
+    foreach ($hive in @("HKLM:\SOFTWARE\Python\PythonCore",
+                         "HKCU:\SOFTWARE\Python\PythonCore",
+                         "HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore")) {
+        if (-not (Test-Path $hive)) { continue }
+        foreach ($minor in $PYTHON_MAX_MINOR..$PYTHON_MIN_MINOR) {
+            $key = "$hive\3.$minor\InstallPath"
+            if (-not (Test-Path $key)) { continue }
+            # Prefer the ExecPath value; fall back to default (install dir).
+            $exe = (Get-ItemProperty $key -ErrorAction SilentlyContinue).ExecutablePath
+            if (-not $exe) {
+                $dir = (Get-ItemProperty $key -ErrorAction SilentlyContinue).'(default)'
+                if (-not $dir) {
+                    $dir = (Get-ItemProperty $key -ErrorAction SilentlyContinue).''
+                }
+                if ($dir) { $exe = Join-Path $dir "python.exe" }
+            }
+            if ($exe -and (Test-Path $exe)) {
+                $v = [version]"3.$minor"
+                if (-not $bestVer -or $v -gt $bestVer) {
+                    $bestVer = $v
+                    $best    = $exe
+                }
+                break   # found this minor version; move to next hive
+            }
+        }
+    }
+    return $best
+}
+
 # ── Directories ───────────────────────────────────────────────────────────────
 
 $root      = (Resolve-Path -LiteralPath (
@@ -110,10 +147,11 @@ $root      = (Resolve-Path -LiteralPath (
 $obsDir    = Join-Path $root "obs-studio"
 $pythonDir = Join-Path $root "python"
 $ffmpegDir = Join-Path $root "ffmpeg"
+$venvDir   = Join-Path $root "venv"
 $iniFile   = Join-Path $root "obsapp-config.ini"
 $batFile   = Join-Path $root "run-obsapp.bat"
 
-$isUpdate  = Test-Path (Join-Path $pythonDir "python.exe")
+$isUpdate  = Test-Path (Join-Path $venvDir "Scripts\python.exe")
 
 if (-not $isUpdate) {
     # On a fresh install the directory must be empty.
@@ -139,7 +177,9 @@ if (Test-Path (Join-Path $obsDir "bin\64bit\obs64.exe")) {
     Write-Skip "OBS $v"
 } else {
     $obsTag = Get-GitHubLatestTag $OBS_REPO
-    if (-not $obsTag) { Abort "Could not determine latest OBS release from GitHub." }
+    if (-not $obsTag) { 
+        Abort "Could not determine latest OBS release from GitHub. Exiting." 
+    }
     $obsVer = $obsTag.TrimStart('v')
     $obsUrl = "https://github.com/$OBS_REPO/releases/download/$obsTag/OBS-Studio-$obsVer-Windows.zip"
     $obsZip = Join-Path $tmp "obs.zip"
@@ -149,40 +189,69 @@ if (Test-Path (Join-Path $obsDir "bin\64bit\obs64.exe")) {
     Write-OK "OBS $obsVer installed to $obsDir"
 }
 
-# ── Python (embeddable) ───────────────────────────────────────────────────────
+# ── Python ────────────────────────────────────────────────────────────────────
 
-Write-Step "Python $PYTHON_VER (embeddable)"
+Write-Step "Python"
+
+# Resolve the base python.exe we will use to create the venv.
+# Preference order: system-wide install (highest 3.12-3.30) > local embeddable.
+$basePython = $null
 
 if (Test-Path (Join-Path $pythonDir "python.exe")) {
-    Write-Skip "Python (found at $pythonDir\python.exe)"
+    # Previously downloaded embeddable copy — reuse it.
+    $basePython = Join-Path $pythonDir "python.exe"
+    Write-Skip "Python (local embeddable at $basePython)"
 } else {
-    $pyUrl = "https://www.python.org/ftp/python/$PYTHON_VER/python-$PYTHON_VER-embed-amd64.zip"
-    $pyZip = Join-Path $tmp "python-embed.zip"
-    Save-File $pyUrl $pyZip
-    Write-Host "    extracting ..."
-    New-Item -ItemType Directory -Path $pythonDir -Force | Out-Null
-    Expand-Archive -Path $pyZip -DestinationPath $pythonDir -Force
+    $sysPython = Find-SystemPython
+    if ($sysPython) {
+        $v = & $sysPython -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')" 2>$null
+        $basePython = $sysPython
+        Write-OK "Found system Python $v at $sysPython"
+    } else {
+        # Download the embeddable distribution as a fallback.
+        Write-Host "    no suitable system Python found; downloading embeddable Python $PYTHON_EMBED_VER ..."
+        $pyUrl = "https://www.python.org/ftp/python/$PYTHON_EMBED_VER/python-$PYTHON_EMBED_VER-embed-amd64.zip"
+        $pyZip = Join-Path $tmp "python-embed.zip"
+        Save-File $pyUrl $pyZip
+        Write-Host "    extracting ..."
+        New-Item -ItemType Directory -Path $pythonDir -Force | Out-Null
+        Expand-Archive -Path $pyZip -DestinationPath $pythonDir -Force
 
-    # The embeddable distribution disables site-packages by default.
-    # Uncomment "import site" in the ._pth file to enable pip installs.
-    $pthFile = Get-ChildItem $pythonDir -Filter "*._pth" | Select-Object -First 1
-    if (-not $pthFile) { Abort "Could not find ._pth file in Python embeddable zip." }
-    $pthContent = Get-Content $pthFile.FullName -Raw
-    $pthContent = $pthContent -replace '#import site', 'import site'
-    Set-Content $pthFile.FullName $pthContent -NoNewline
+        # The embeddable distribution disables site-packages by default.
+        # Uncomment "import site" in the ._pth file to enable pip installs.
+        $pthFile = Get-ChildItem $pythonDir -Filter "*._pth" | Select-Object -First 1
+        if (-not $pthFile) { Abort "Could not find ._pth file in Python embeddable zip." }
+        $pthContent = Get-Content $pthFile.FullName -Raw
+        $pthContent = $pthContent -replace '#import site', 'import site'
+        Set-Content $pthFile.FullName $pthContent -NoNewline
 
-    # Bootstrap pip
-    Write-Host "    installing pip ..."
-    $getPip = Join-Path $tmp "get-pip.py"
-    Save-File "https://bootstrap.pypa.io/get-pip.py" $getPip
-    & "$pythonDir\python.exe" $getPip --quiet
-    if ($LASTEXITCODE -ne 0) { Abort "pip bootstrap failed." }
+        # Bootstrap pip into the embeddable distribution.
+        Write-Host "    installing pip into embeddable Python ..."
+        $getPip = Join-Path $tmp "get-pip.py"
+        Save-File "https://bootstrap.pypa.io/get-pip.py" $getPip
+        & "$pythonDir\python.exe" $getPip --quiet
+        if ($LASTEXITCODE -ne 0) { Abort "pip bootstrap failed." }
 
-    Write-OK "Python $PYTHON_VER installed to $pythonDir"
+        $basePython = Join-Path $pythonDir "python.exe"
+        Write-OK "Python $PYTHON_EMBED_VER installed to $pythonDir"
+    }
 }
 
-$pip    = Join-Path $pythonDir "Scripts\pip.exe"
-$python = Join-Path $pythonDir "python.exe"
+# ── Venv ──────────────────────────────────────────────────────────────────────
+
+Write-Step "Python venv"
+
+if (Test-Path (Join-Path $venvDir "Scripts\python.exe")) {
+    Write-Skip "venv (found at $venvDir)"
+} else {
+    Write-Host "    creating venv at $venvDir ..."
+    & $basePython -m venv $venvDir
+    if ($LASTEXITCODE -ne 0) { Abort "Failed to create venv at $venvDir." }
+    Write-OK "venv created at $venvDir"
+}
+
+$python = Join-Path $venvDir "Scripts\python.exe"
+$pip    = Join-Path $venvDir "Scripts\pip.exe"
 
 # ── FFmpeg ────────────────────────────────────────────────────────────────────
 
@@ -216,7 +285,7 @@ if ($Current) {
     }
 }
 
-& $pip install $obsappUrl --quiet
+& $pip install --upgrade $obsappUrl --quiet
 if ($LASTEXITCODE -ne 0) { Abort "OBSapp installation via pip failed." }
 Write-OK "OBSapp installed"
 
@@ -232,6 +301,7 @@ if (-not (Test-Path $iniFile)) {
 [obsappliance]
 obs_executable     = $obsExe
 ffmpeg_executable  = $ffmpegExe
+venv_dir           = $venvDir
 "@ | Set-Content $iniFile
     Write-OK "Created $iniFile"
 } else {
@@ -245,7 +315,7 @@ Write-Step "Launcher"
 # pythonw.exe suppresses the console window for a GUI application.
 @"
 @echo off
-start "" "%~dp0python\pythonw.exe" -m obsapp.main "%~dp0obsapp-config.ini" %*
+start "" "%~dp0venv\Scripts\pythonw.exe" -m obsapp.main "%~dp0obsapp-config.ini" %*
 "@ | Set-Content $batFile
 Write-OK "Created $batFile"
 
@@ -254,7 +324,7 @@ Write-OK "Created $batFile"
 Write-Step "Desktop shortcut"
 
 # Find the installed icon; fall back to the OBS executable's icon.
-$icoPath = Get-ChildItem "$pythonDir\Lib\site-packages\obsapp\resources" `
+$icoPath = Get-ChildItem "$venvDir\Lib\site-packages\obsapp\resources" `
                -Filter "obsapp-icon.ico" -ErrorAction SilentlyContinue |
            Select-Object -First 1 -ExpandProperty FullName
 if (-not $icoPath) { $icoPath = "$obsExe,0" }
@@ -280,8 +350,9 @@ Write-Host @"
 Done.  Installation layout:
   $root\
     obs-studio\        OBS Studio portable
-    python\            Python $PYTHON_VER + OBSapp
+    python\            Python $PYTHON_EMBED_VER embeddable (if no system Python was found)
     ffmpeg\            FFmpeg
+    venv\              Python venv with OBSapp
     obsapp-config.ini  edit to adjust paths if needed
     run-obsapp.bat     launch from the command line
 
