@@ -400,15 +400,50 @@ class OBSController:
                 "RecEncoder=x264\n"
             )
 
-        # ── minimal scene collection ──
+        # ── minimal scene collection (OBS 30+ format) ──
+        # OBS 30+ stores scenes inside the top-level "sources" array as items
+        # with "id": "scene".  The legacy "scenes" key is silently ignored,
+        # causing OBS to start with zero scenes and crash on startup.
         scenes_dir = cfg / "basic" / "scenes"
         scenes_dir.mkdir(parents=True, exist_ok=True)
         sc = scenes_dir / "OBSapp.json"
         if not sc.exists():
+            import uuid as _uuid
             sc.write_text(json.dumps({
                 "name": "OBSapp",
                 "current_scene": _SCENE_NAME,
-                "scenes": [{"name": _SCENE_NAME, "sources": []}],
+                "current_program_scene": _SCENE_NAME,
+                "scene_order": [{"name": _SCENE_NAME}],
+                "sources": [
+                    {
+                        "id": "scene",
+                        "versioned_id": "scene",
+                        "uuid": str(_uuid.uuid4()),
+                        "name": _SCENE_NAME,
+                        "settings": {"id_counter": 0, "custom_size": False, "items": []},
+                        "mixers": 0,
+                        "sync": 0,
+                        "flags": 0,
+                        "volume": 1.0,
+                        "balance": 0.5,
+                        "enabled": True,
+                        "muted": False,
+                        "push-to-mute": False,
+                        "push-to-mute-delay": 0,
+                        "push-to-talk": False,
+                        "push-to-talk-delay": 0,
+                        "hotkeys": {"OBSBasic.SelectScene": []},
+                        "deinterlace_mode": 0,
+                        "deinterlace_field_order": 0,
+                        "monitoring_type": 0,
+                        "private_settings": {},
+                    }
+                ],
+                "groups": [],
+                "transitions": [],
+                "current_transition": "FadeTransition",
+                "transition_duration": 300,
+                "preview_locked": False,
             }, indent=2))
 
         # ── global.ini: websocket settings ──
