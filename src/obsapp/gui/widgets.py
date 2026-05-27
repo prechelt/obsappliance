@@ -248,7 +248,6 @@ def show_message(parent, title: str, message: str) -> None:
     dialog = ctk.CTkToplevel(parent)
     dialog.title(title)
     dialog.transient(parent)
-    dialog.grab_set()
     dialog.resizable(False, False)
 
     ctk.CTkLabel(
@@ -261,6 +260,10 @@ def show_message(parent, title: str, message: str) -> None:
     dialog.bind("<Return>", lambda e: dialog.destroy())
     dialog.bind("<Escape>", lambda e: dialog.destroy())
     dialog.after(0, ok_btn.focus_set)
+    # wait_visibility() ensures the window is mapped before grab_set().
+    # On Linux, grab_set() raises TclError if called before the window is shown.
+    dialog.wait_visibility()
+    dialog.grab_set()
     dialog.wait_window()
 
 
@@ -271,7 +274,6 @@ def ask_confirmation(parent, title: str, message: str) -> bool:
     dialog = ctk.CTkToplevel(parent)
     dialog.title(title)
     dialog.transient(parent)
-    dialog.grab_set()
     dialog.resizable(False, False)
 
     ctk.CTkLabel(
@@ -293,6 +295,10 @@ def ask_confirmation(parent, title: str, message: str) -> bool:
     dialog.bind("<Return>", lambda e: on_ok())
     dialog.bind("<Escape>", lambda e: dialog.destroy())
     dialog.after(0, ok_btn.focus_set)
+    # wait_visibility() ensures the window is mapped before grab_set().
+    # On Linux, grab_set() raises TclError if called before the window is shown.
+    dialog.wait_visibility()
+    dialog.grab_set()
     dialog.wait_window()
     return result[0]
 
