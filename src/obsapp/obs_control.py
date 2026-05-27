@@ -3,6 +3,7 @@
 import configparser
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -86,14 +87,19 @@ class OBSController:
         if self.ws is not None:
             return
         self._ensure_obs_config()
+        obs_args = [
+            self._obs_exe,
+            "--minimize-to-tray",
+            "--multi",          # don't show "already running" dialog
+            "--collection", "OBSapp",
+            "--profile", "OBSapp",
+        ]
+        # --profile-path is a Windows-only OBS flag; on Linux/macOS OBS ignores
+        # it and always uses its standard XDG / Library config directory.
+        if self._platform == "win32":
+            obs_args += ["--profile-path", str(self.obs_config_dir)]
         self._process = subprocess.Popen(
-            [
-                self._obs_exe,
-                "--minimize-to-tray",
-                "--collection", "OBSapp",
-                "--profile", "OBSapp",
-                "--profile-path", str(self.obs_config_dir),
-            ],
+            obs_args,
             cwd=str(Path(self._obs_exe).parent) if Path(self._obs_exe).is_absolute() else None,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -331,9 +337,25 @@ class OBSController:
         """OBS config directory used by this OBSapp installation."""
         return self.obs_config_dir
 
+    def _obs_system_config_dir(self) -> Path:
+        """Return the directory where OBS actually reads its config.
+
+        On Windows, OBSapp uses a self-contained directory passed via
+        ``--profile-path``.  On Linux and macOS that flag is not supported by
+        OBS, so OBS always reads from its standard XDG / Library location.
+        """
+        if self._platform == "win32":
+            return self.obs_config_dir
+        if self._platform == "darwin":
+            return Path.home() / "Library" / "Application Support" / "obs-studio"
+        # Linux: honour XDG_CONFIG_HOME if set.
+        xdg = os.environ.get("XDG_CONFIG_HOME", "")
+        base = Path(xdg) if xdg else Path.home() / ".config"
+        return base / "obs-studio"
+
     def _ensure_obs_config(self) -> None:
         """Create/update OBS config files before launching OBS."""
-        cfg = self._obs_config_path()
+        cfg = self._obs_system_config_dir()
 
         # ── websocket: enabled, no authentication ──
         # Always overwrite these fields so a pre-existing user config with
