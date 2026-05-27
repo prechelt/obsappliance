@@ -345,8 +345,13 @@ class RecordingFrame(ctk.CTkFrame):
 
     def _fit_to_content(self) -> None:
         """Resize window to the natural size of the recording controls."""
-        # winfo_reqwidth() returns screen pixels; fit_window() takes logical
-        # pixels (screen px / scaling), consistent with all other call sites.
+        # update_idletasks() must be called before winfo_reqwidth() so that
+        # CTk's deferred idle-task canvas sizing has run.  Without it the
+        # btn_row with two side-by-side buttons reports only one button's width
+        # (e.g. 200 px instead of 300 px), making the window too narrow to show
+        # the Stop button.  fit_window() also calls update_idletasks() for the
+        # height measurement; calling it here first is harmless.
+        self.app.update_idletasks()
         scaling = self.app._get_window_scaling()
         min_w = round(self.winfo_reqwidth() / scaling)
         fit_window(self.app, self, min_w)
