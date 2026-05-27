@@ -4,6 +4,7 @@ Entry point: obsapp.main:main  (see pyproject.toml [project.scripts]).
 """
 
 import os
+import signal
 import sys
 from pathlib import Path
 
@@ -33,7 +34,7 @@ class App(ctk.CTk):
         _res = Path(__file__).parent / "resources"
         _ico = _res / "obsapp-icon.ico"
         _png = _res / "obsapp-icon.png"
-        if _ico.exists():
+        if sys.platform == "win32" and _ico.exists():
             self.iconbitmap(str(_ico))
         if _png.exists():
             import tkinter as tk
@@ -140,12 +141,19 @@ def main() -> None:
     ctk.set_default_color_theme("blue")
     app = App(cfg=cfg, obs_config_dir=obs_config_dir)
 
+    # SIGTERM (e.g. `kill <pid>`) does not raise a Python exception, so the
+    # finally block below would not run without this handler.  Schedule the
+    # cleanup via `after` so it runs inside the Tk event loop (thread-safe).
+    def _on_sigterm(signum, frame):
+        app.after(0, app.quit_app)
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
+
     try:
         app.mainloop()
     finally:
-        # Runs on normal exit, exceptions, and KeyboardInterrupt.
-        # Not guaranteed on hard crashes (SIGKILL/power loss), but covers all
-        # normal termination paths including unhandled exceptions.
+        # Runs on normal exit, exceptions, KeyboardInterrupt, and SIGTERM
+        # (handled above).  Not guaranteed on SIGKILL / power loss.
         app.obs.stop()
 
 
