@@ -31,7 +31,7 @@ from .constants import (
 )
 from .os_specifics import (
     _enum_monitors_win32, _enum_mics_win32, _enum_webcams_win32,
-    _enum_monitors_linux, _enum_mics_linux,
+    _enum_monitors_linux, _enum_mics_linux, _enum_webcams_linux,
     _enum_monitors_darwin, _enum_mics_darwin,
 )
 
@@ -210,7 +210,9 @@ class OBSController:
         try:
             if self._platform == "win32":
                 return _enum_webcams_win32()
-            # Linux and macOS webcam enumeration not yet implemented.
+            if self._platform == "linux":
+                return _enum_webcams_linux()
+            # macOS webcam enumeration not yet implemented.
             return []
         except Exception as exc:
             print(f"Webcam enumeration failed: {exc}")

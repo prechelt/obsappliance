@@ -4,6 +4,7 @@ All functions return a list of (display_name, value) tuples where *value* is
 what gets written into the OBS source settings dict for the relevant property.
 """
 
+import os
 import re
 import subprocess
 
@@ -478,6 +479,77 @@ def _enum_mics_linux() -> list[tuple[str, str]]:
             if "monitor" not in current_name.lower():
                 results.append((current_desc, current_name))
             current_name = current_desc = None
+    return results
+
+
+def _enum_webcams_linux() -> list[tuple[str, str]]:
+    """Return [(friendly_name, device_path), ...] for V4L2 video-capture devices.
+
+    Uses ``VIDIOC_QUERYCAP`` (pure Python ``fcntl``) to read the device
+    capabilities without requiring ``v4l2-ctl`` or any other external tool.
+
+    Only nodes that advertise ``V4L2_CAP_VIDEO_CAPTURE`` are returned.  Many
+    cameras expose an auxiliary metadata node (e.g. ``/dev/video1`` alongside
+    the real ``/dev/video0``); those nodes lack the capture bit and are skipped.
+    Duplicate card names (same physical camera, multiple nodes) are collapsed to
+    the first matching node.
+
+    The returned *device_path* (e.g. ``/dev/video0``) is what OBS's
+    ``v4l2_input`` source expects for its ``device_id`` property.
+    """
+    import fcntl
+    import glob
+    import struct
+
+    # VIDIOC_QUERYCAP ioctl number (Linux, little-endian).
+    # v4l2_capability struct layout (104 bytes as seen by this ioctl):
+    #   driver[16], card[32], bus_info[32], version[4],
+    #   capabilities[4], device_caps[4], reserved[12]
+    VIDIOC_QUERYCAP        = 0x80685600
+    _OFF_CAPABILITIES      = 84
+    _OFF_DEVICE_CAPS       = 88
+    V4L2_CAP_VIDEO_CAPTURE = 0x00000001
+    V4L2_CAP_DEVICE_CAPS   = 0x80000000
+    _BUF_SIZE              = 104
+
+    results: list[tuple[str, str]] = []
+    seen_cards: set[str] = set()
+
+    for dev_path in sorted(glob.glob("/dev/video*")):
+        # Open O_NONBLOCK so we don't block on cameras in use.
+        try:
+            fd = os.open(dev_path, os.O_RDONLY | os.O_NONBLOCK)
+        except OSError:
+            continue
+        try:
+            buf = bytearray(_BUF_SIZE)
+            fcntl.ioctl(fd, VIDIOC_QUERYCAP, buf)
+        except OSError:
+            os.close(fd)
+            continue
+        os.close(fd)
+
+        capabilities = struct.unpack_from("<I", buf, _OFF_CAPABILITIES)[0]
+        device_caps  = struct.unpack_from("<I", buf, _OFF_DEVICE_CAPS)[0]
+
+        # When V4L2_CAP_DEVICE_CAPS is set, device_caps carries the per-node
+        # flags; otherwise fall back to the combined capabilities field.
+        effective = device_caps if (capabilities & V4L2_CAP_DEVICE_CAPS) else capabilities
+
+        if not (effective & V4L2_CAP_VIDEO_CAPTURE):
+            continue  # metadata, output, or non-capture node
+
+        card = bytes(buf[16:48]).rstrip(b"\x00").decode("utf-8", errors="replace").strip()
+        if not card:
+            card = os.path.basename(dev_path)
+
+        # Collapse multiple nodes of the same physical camera.
+        if card in seen_cards:
+            continue
+        seen_cards.add(card)
+
+        results.append((card, dev_path))
+
     return results
 
 
