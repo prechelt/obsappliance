@@ -345,7 +345,11 @@ class RecordingFrame(ctk.CTkFrame):
 
     def _fit_to_content(self) -> None:
         """Resize window to the natural size of the recording controls."""
-        fit_window(self.app, self, self.winfo_reqwidth())
+        # winfo_reqwidth() returns screen pixels; fit_window() takes logical
+        # pixels (screen px / scaling), consistent with all other call sites.
+        scaling = self.app._get_window_scaling()
+        min_w = round(self.winfo_reqwidth() / scaling)
+        fit_window(self.app, self, min_w)
 
     def _on_pause(self) -> None:
         if self._paused:
