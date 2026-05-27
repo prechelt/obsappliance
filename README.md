@@ -167,9 +167,14 @@ venv_dir=c:\venvs\obsapp
 ```
 
 
-## 4. This section is intentionally left empty
+## 4. FAQ
 
-Have a break.
+### 4.1 My webcam is not offered for selection
+
+On Linux, this can happen if you are not a member of the `video` group.
+Check it with `groups`. Add yourself by `sudo usermod -aG video yourusername`.
+
+### 4.2 ...
 
 
 ## 5. Development steps
@@ -206,5 +211,5 @@ PYTHONPATH=src python -m obsapp.main tmp_obsappdir/obsapp-config.ini
 
 ### 6. Next development step
 
-- Test Windows installer
+- ...
 
