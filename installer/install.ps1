@@ -378,12 +378,17 @@ Write-OK "OBSapp installed"
 Write-Step "Configuration"
 
 if (-not (Test-Path $iniFile)) {
-    @"
+    # Write UTF-8 without BOM so Python's configparser reads it correctly on
+    # every locale, even when the install path contains non-ASCII characters.
+    # Set-Content's default encoding differs between PS5 (ANSI) and PS7 (UTF-8),
+    # so we use WriteAllText with an explicit no-BOM UTF-8 encoder.
+    $iniContent = @"
 [obsappliance]
 obs_executable     = $obsExe
 ffmpeg_executable  = $ffmpegExe
 venv_dir           = $venvDir
-"@ | Set-Content $iniFile
+"@
+    [System.IO.File]::WriteAllText($iniFile, $iniContent, [System.Text.UTF8Encoding]::new($false))
     Write-OK "Created $iniFile"
 } else {
     Write-Skip "Config file (not overwritten on update)"
