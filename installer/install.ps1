@@ -214,6 +214,8 @@ function Install-Python([string]$tmpDir) {
 $InstallDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($InstallDir)
 
 $tmp = $null   # initialised inside try so finally can safely remove it
+$script:_abortMessage = $null   # set by Abort(); must exist before catch reads it
+$script:_aborted      = $false  # set in catch; must exist before post-try check
 
 try {
 
