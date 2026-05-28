@@ -94,10 +94,12 @@ class OBSController:
             "--collection", "OBSapp",
             "--profile", "OBSapp",
         ]
-        # --profile-path is a Windows-only OBS flag; on Linux/macOS OBS ignores
-        # it and always uses its standard XDG / Library config directory.
-        if self._platform == "win32":
-            obs_args += ["--profile-path", str(self.obs_config_dir)]
+        # OBS does not support a --profile-path flag on any platform; it always
+        # reads config from its standard OS location (%APPDATA%\obs-studio on
+        # Windows, XDG / Library on Linux/macOS).  We therefore write our
+        # websocket, profile, and scene-collection config into that standard
+        # location (see _obs_system_config_dir) and rely on --profile /
+        # --collection to select the OBSapp-specific sub-configs within it.
         self._process = subprocess.Popen(
             obs_args,
             cwd=str(Path(self._obs_exe).parent) if Path(self._obs_exe).is_absolute() else None,
@@ -342,12 +344,14 @@ class OBSController:
     def _obs_system_config_dir(self) -> Path:
         """Return the directory where OBS actually reads its config.
 
-        On Windows, OBSapp uses a self-contained directory passed via
-        ``--profile-path``.  On Linux and macOS that flag is not supported by
-        OBS, so OBS always reads from its standard XDG / Library location.
+        OBS always uses its standard OS config location regardless of how it
+        was launched.  On Windows that is ``%APPDATA%\\obs-studio``; on Linux
+        it is ``$XDG_CONFIG_HOME/obs-studio`` (falling back to
+        ``~/.config/obs-studio``); on macOS it is
+        ``~/Library/Application Support/obs-studio``.
         """
         if self._platform == "win32":
-            return self.obs_config_dir
+            return Path(os.environ["APPDATA"]) / "obs-studio"
         if self._platform == "darwin":
             return Path.home() / "Library" / "Application Support" / "obs-studio"
         # Linux: honour XDG_CONFIG_HOME if set.
