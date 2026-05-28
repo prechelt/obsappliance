@@ -45,6 +45,11 @@ you can record this separately and then join the recordings via the "concatenate
 
 ## 2. Installation
 
+Although OBS Appliance is based on Python, 
+installation is always directly from GitHub.
+There is no PyPI package because the standard install processes of those do not fit well
+with the dependency management that our shell-script installer performs.
+
 ### 2.1 Windows
 
 Create an empty directory anywhere you like (e.g. in your home directory).
