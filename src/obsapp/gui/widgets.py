@@ -247,6 +247,14 @@ def fit_window(app: ctk.CTk, frame: ctk.CTkFrame, min_w: int) -> None:
     h = round(frame.winfo_reqheight() / scaling)
     app.geometry(f"{min_w}x{h}")
     app.minsize(min_w, h)
+    # CTk's DPI-polling loop (ScalingTracker.check_dpi_scaling) sets
+    # attributes("-alpha", 0.15) for the duration of a rescale and then
+    # restores it to 1.  If that restore races with the 1×1 intermediate
+    # state used by _show_frame() during a frame transition, the window can
+    # get stuck at 15 % opacity.  Unconditionally restoring alpha to 1 here
+    # is idempotent when the window is already fully opaque and corrects the
+    # stuck case without interfering with CTk's own alpha management.
+    app.attributes("-alpha", 1)
     # Register a refit callback so App can re-size when the DPI changes
     # (e.g. window dragged to a monitor with different scaling).
     if hasattr(app, "_refit_callback"):
