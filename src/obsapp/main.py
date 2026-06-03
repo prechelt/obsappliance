@@ -6,7 +6,9 @@ Entry point: obsapp.main:main  (see pyproject.toml [project.scripts]).
 import os
 import signal
 import sys
+from collections.abc import Callable
 from pathlib import Path
+import tkinter as tk
 
 import customtkinter as ctk
 
@@ -37,7 +39,6 @@ class App(ctk.CTk):
         if sys.platform == "win32" and _ico.exists():
             self.iconbitmap(str(_ico))
         if _png.exists():
-            import tkinter as tk
             self._app_icon = tk.PhotoImage(file=str(_png))
             self.wm_iconphoto(True, self._app_icon)
 
@@ -52,15 +53,42 @@ class App(ctk.CTk):
 
         self._current_frame: ctk.CTkFrame | None = None
 
+        # ── DPI-change / monitor-move refit ───────────────────────────
+        # fit_window() stores a callback here each time it sizes the window.
+        # _on_configure() re-invokes it whenever the window moves to a monitor
+        # with a different DPI scaling factor.
+        self._refit_callback: Callable[[], None] | None = None
+        self._last_scaling: float = self._get_window_scaling()
+        self.bind("<Configure>", self._on_configure)
+
         self.protocol("WM_DELETE_WINDOW", self.quit_app)
 
         self.show_main_menu()
 
     # ── frame management ──────────────────────────────────────────────
 
+    def _on_configure(self, event: tk.Event) -> None:  # type: ignore[type-arg]
+        """Re-fit the window when it moves to a monitor with different DPI.
+
+        ``<Configure>`` fires on every resize and move.  We only act when
+        ``_get_window_scaling()`` actually changes so that normal drags do
+        not trigger an unnecessary re-layout.
+        """
+        if event.widget is not self:
+            return
+        new_scaling = self._get_window_scaling()
+        if new_scaling != self._last_scaling:
+            self._last_scaling = new_scaling
+            if self._refit_callback is not None:
+                self.after(0, self._refit_callback)
+
     def _show_frame(self, frame: ctk.CTkFrame, title: str = "OBSapp") -> None:
         if self._current_frame is not None:
             self._current_frame.destroy()
+        # Clear any stale refit callback from the departing frame so a
+        # monitor-move event that fires during the transition doesn't re-size
+        # the window using the old frame's measurements.
+        self._refit_callback = None
         # Reset window size and minimum constraints so the incoming frame's
         # fit_window() callback measures only its own natural content height,
         # not the leftover geometry from the previous frame.

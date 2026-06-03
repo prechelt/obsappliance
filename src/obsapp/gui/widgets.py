@@ -235,12 +235,22 @@ def fit_window(app: ctk.CTk, frame: ctk.CTkFrame, min_w: int) -> None:
 
     Both ``geometry()`` and ``minsize()`` are set to the same value so the
     window has a fixed size equal to its content.
+
+    After sizing the window, the lambda ``lambda: fit_window(app, frame,
+    min_w)`` is stored as ``app._refit_callback``.  ``App._on_configure``
+    invokes it whenever the window moves to a monitor with a different DPI
+    scaling factor, so the window re-measures itself at the new scale instead
+    of remaining locked to the old physical size.
     """
     app.update_idletasks()
     scaling = app._get_window_scaling()
     h = round(frame.winfo_reqheight() / scaling)
     app.geometry(f"{min_w}x{h}")
     app.minsize(min_w, h)
+    # Register a refit callback so App can re-size when the DPI changes
+    # (e.g. window dragged to a monitor with different scaling).
+    if hasattr(app, "_refit_callback"):
+        app._refit_callback = lambda: fit_window(app, frame, min_w)  # type: ignore[attr-defined]
 
 
 def show_message(parent, title: str, message: str) -> None:
