@@ -65,6 +65,8 @@ then installs OBSapp and creates a desktop shortcut.
 A launcher is written into the install directory as `run-obsapp.bat`.
 No administrator rights required.
 
+To uninstall, simply delete the entire installation directory and the desktop shortcut.
+
 ### 2.2 Installation on macOS
 
 NOT YET AVAILABLE.
@@ -94,6 +96,8 @@ OBSapp goes into `~/.local/share/obsapp/venv`.
 A launcher is placed at `~/.local/bin/obsapp` and a desktop entry at
 `~/.local/share/applications/obsapp.desktop`.
 
+To uninstall, simply delete these two files and the `~/.local/share/obsapp` directory.
+
 ### 2.4 Updating OBSapp
 
 Re-run the same install command. 
@@ -102,14 +106,10 @@ OBS Studio, FFmpeg, and system packages are left untouched; only OBSapp is reins
 To install from the `main` branch instead of the latest release, 
 add `--current` (Linux/macOS) or `-Current` (Windows).
 
-### 2.5 Uninstall
-
-Just delete the entire installation directory.
-
-### 2.6 Release Notes
+### 2.5 Release Notes
 
 The installer will always install the newest version;
-there are no formal releases, at least yet.
+there are no formal release files yet.
 
 For development history, see [docs/changelog.md](docs/changelog.md).
 
