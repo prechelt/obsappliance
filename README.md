@@ -85,12 +85,12 @@ A launcher is placed at `~/.local/bin/obsapp` and a shortcut at `~/Desktop/OBSap
 ### 2.3 Installation on Linux
 
 ```bash
-bash installer/install.sh
+curl -fsSL https://raw.githubusercontent.com/prechelt/obsappliance/main/installer/install.sh | bash
 ```
 
-Installs OBS Studio, FFmpeg, and Python via the system package manager
+Installs OBS Studio and FFmpeg via the system package manager
 (apt / dnf / pacman / zypper) if they do not yet exist; `sudo` is required for that step.
-OBSapp goes into `~/.local/share/obsapp/venv` and !!!.
+OBSapp goes into `~/.local/share/obsapp/venv`.
 A launcher is placed at `~/.local/bin/obsapp` and a desktop entry at
 `~/.local/share/applications/obsapp.desktop`.
 
