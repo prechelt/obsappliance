@@ -215,9 +215,15 @@ c:\venv\obsapp\Scripts\Activate.ps1
 
 ### 5.3 Interactive testing
 
+On Windows:
 ```
 & 'C:\Program Files\Git\bin\bash.exe'
 PYTHONPATH=src python -m obsapp.main tmp_obsappdir/obsapp-config.ini
+```
+
+On Linux:
+```
+PYTHONPATH=src DISPLAY=":0" python -m obsapp.main tmp_obsappdir/obsapp-config.ini
 ```
 
 ### 5.4 Steps to do
