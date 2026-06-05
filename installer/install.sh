@@ -333,7 +333,7 @@ if [[ "$PLATFORM" == "linux" ]] && [[ "$PKG_MGR" == "apt" ]] && [[ -n "$python_e
 fi
 
 # In --no-sudo mode: if any packages are needed, print install instructions and exit.
-[[ "$NO_SUDO" -eq 1 ]] && nosudo_flush
+if [[ "$NO_SUDO" -eq 1 ]]; then nosudo_flush; fi
 
 # ── Venv ──────────────────────────────────────────────────────────────────────
 
