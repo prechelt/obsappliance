@@ -461,12 +461,18 @@ class OBSController:
                 "preview_locked": False,
             }, indent=2))
 
-        # ── global.ini: websocket settings ──
+        # ── global.ini: suppress first-run wizard, enable websocket ──
+        # FirstRun=false prevents OBS from showing its Auto-Configuration Wizard
+        # on first launch.  The wizard is a modal Qt dialog that blocks the Qt
+        # event loop, which in turn prevents obs-websocket from accepting any
+        # connections until the user dismisses it — causing the connection
+        # timeout.  obsapp manages all OBS config itself so the wizard is never
+        # needed.
         gi = cfg / "global.ini"
         if not gi.exists():
             gi.write_text(
                 "[General]\n"
-                "FirstRun=true\n"
+                "FirstRun=false\n"
                 "\n"
                 "[OBSWebSocket]\n"
                 f"ServerPort={_WS_PORT}\n"
@@ -474,6 +480,17 @@ class OBSController:
                 "ServerPassword=\n"
                 "AlertsEnabled=false\n"
             )
+        else:
+            # Ensure FirstRun is false even if a previous OBS launch set it.
+            parser = configparser.RawConfigParser()
+            parser.optionxform = str  # preserve key case
+            parser.read(gi)
+            if not parser.has_section("General"):
+                parser.add_section("General")
+            if parser.get("General", "FirstRun", fallback="false").lower() != "false":
+                parser.set("General", "FirstRun", "false")
+                with gi.open("w") as fh:
+                    parser.write(fh)
 
     def _create_scene_if_missing(self, name: str) -> None:
         """Create an OBS scene, silently ignoring 'already exists' (code 601)."""
