@@ -187,12 +187,20 @@ venv_dir=c:\venvs\obsapp
 
 ## 4. FAQ
 
-### 4.1 My webcam is not offered for selection
+### 4.1 Can I record multiple screens at once?
 
-On Linux, this can happen if you are not a member of the `video` group.
+No, this is not possible with OBSapp.
+
+### 4.2 Linux: My webcam is not offered for selection
+
+This can happen if you are not a member of the `video` group.
 Check it with `groups`. Add yourself by `sudo usermod -aG video yourusername`.
 
-### 4.2 ...
+### 4.3 Wayland: Why does another screen selection dialog appear when I finish the OBSapp recording dialog?
+
+To the best of our knowledge, this is unavoidable, because `pipewire-desktop-capture` does not 
+accept a pre-selected screen ID.
+
 
 
 ## 5. Development steps
