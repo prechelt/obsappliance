@@ -86,6 +86,19 @@ class OBSController:
         """Start OBS (if needed) and connect the websocket."""
         if self.ws is not None:
             return
+        # A previous start() call may have launched an OBS process that we
+        # never managed to connect to (e.g. it timed out while OBS was showing
+        # its first-run wizard).  Terminate that orphan before starting a fresh
+        # instance so we don't end up with two OBS processes competing for
+        # port 4455, which would prevent either from accepting connections.
+        if self._process is not None and self._process.poll() is None:
+            self._process.terminate()
+            try:
+                self._process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+                self._process.wait()
+            self._process = None
         self._ensure_obs_config()
         obs_args = [
             self._obs_exe,
