@@ -2,9 +2,14 @@
 # install.sh — Install OBSapp on Linux or macOS.
 #
 # Usage:
-#   bash install.sh [--current]
+#   bash install.sh [--current] [--no-sudo]
 #
 #   --current   Install from the main branch instead of the latest release.
+#   --no-sudo   Do not run sudo.  Checks which system packages are missing;
+#               if any, prints the required install command(s) and exits so
+#               the user (or an admin) can run them before re-invoking this
+#               script.  On macOS this flag has no effect (Homebrew does not
+#               use sudo).
 #
 # What this script does:
 #   1. Installs OBS Studio, FFmpeg, and Python 3.10+ via the system package
@@ -41,12 +46,17 @@ LAUNCHER="$BIN_DIR/obsapp"
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
 USE_CURRENT=0
+NO_SUDO=0
 for arg in "$@"; do
     case "$arg" in
         --current) USE_CURRENT=1 ;;
+        --no-sudo) NO_SUDO=1 ;;
         *) echo "Unknown argument: $arg" >&2; exit 1 ;;
     esac
 done
+
+_nosudo_pkgs=()    # package names to install (populated in --no-sudo mode)
+_nosudo_precmds=() # commands to run before the main install (PPA/repo setup)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -82,6 +92,12 @@ case "$(uname -s)" in
     *)       abort "Unsupported platform: $(uname -s)" ;;
 esac
 
+# Homebrew does not use sudo, so --no-sudo is a no-op on macOS.
+if [[ "$PLATFORM" == "macos" && "$NO_SUDO" -eq 1 ]]; then
+    echo "Note: --no-sudo has no effect on macOS (Homebrew does not use sudo); proceeding normally."
+    NO_SUDO=0
+fi
+
 # ── Package manager (Linux only) ──────────────────────────────────────────────
 
 if [[ "$PLATFORM" == "linux" ]]; then
@@ -106,6 +122,15 @@ fi
 install_pkg() {
     # install_pkg <friendly-name> <apt-pkg> <dnf-pkg> <pacman-pkg> <zypper-pkg>
     local name="$1" apt_p="$2" dnf_p="$3" pac_p="$4" zpp_p="$5"
+    if [[ "$NO_SUDO" -eq 1 ]]; then
+        case "$PKG_MGR" in
+            apt)    _nosudo_pkgs+=("$apt_p") ;;
+            dnf)    _nosudo_pkgs+=("$dnf_p") ;;
+            pacman) _nosudo_pkgs+=("$pac_p") ;;
+            zypper) _nosudo_pkgs+=("$zpp_p") ;;
+        esac
+        return
+    fi
     echo "    installing $name ..."
     case "$PKG_MGR" in
         apt)    sudo apt-get install -y "$apt_p" ;;
@@ -113,6 +138,28 @@ install_pkg() {
         pacman) sudo pacman -S --noconfirm "$pac_p" ;;
         zypper) sudo zypper install -y "$zpp_p" ;;
     esac
+}
+
+# nosudo_flush — if any packages were collected in --no-sudo mode, print the
+# install command(s) and exit; otherwise return silently (nothing to do).
+nosudo_flush() {
+    [[ ${#_nosudo_pkgs[@]} -eq 0 && ${#_nosudo_precmds[@]} -eq 0 ]] && return 0
+    printf '\n\033[0;33mSome system packages need to be installed.\033[0m\n'
+    printf 'Please run the following, then re-run:  bash install.sh --no-sudo\n\n'
+    local cmd
+    for cmd in "${_nosudo_precmds[@]}"; do
+        printf '    %s\n' "$cmd"
+    done
+    if [[ ${#_nosudo_pkgs[@]} -gt 0 ]]; then
+        case "$PKG_MGR" in
+            apt)    printf '    sudo apt-get install -y %s\n' "${_nosudo_pkgs[*]}" ;;
+            dnf)    printf '    sudo dnf install -y %s\n' "${_nosudo_pkgs[*]}" ;;
+            pacman) printf '    sudo pacman -S --noconfirm %s\n' "${_nosudo_pkgs[*]}" ;;
+            zypper) printf '    sudo zypper install -y %s\n' "${_nosudo_pkgs[*]}" ;;
+        esac
+    fi
+    printf '\n'
+    exit 0
 }
 
 # ── OBS Studio ────────────────────────────────────────────────────────────────
@@ -152,9 +199,18 @@ else
             apt)
                 # OBS is not in the default Ubuntu/Debian repos; use the official PPA.
                 if ! apt-cache show obs-studio &>/dev/null; then
-                    echo "    adding OBS PPA ..."
-                    sudo add-apt-repository -y ppa:obsproject/obs-studio
-                    sudo apt-get update -q
+                    if [[ "$NO_SUDO" -eq 1 ]]; then
+                        command -v add-apt-repository &>/dev/null || \
+                            _nosudo_precmds+=("sudo apt-get install -y software-properties-common")
+                        _nosudo_precmds+=("sudo add-apt-repository -y ppa:obsproject/obs-studio")
+                        _nosudo_precmds+=("sudo apt-get update")
+                    else
+                        echo "    adding OBS PPA ..."
+                        command -v add-apt-repository &>/dev/null || \
+                            sudo apt-get install -y software-properties-common
+                        sudo add-apt-repository -y ppa:obsproject/obs-studio
+                        sudo apt-get update -q
+                    fi
                 fi
                 install_pkg "OBS Studio" obs-studio obs-studio obs-studio obs-studio
                 ;;
@@ -162,10 +218,17 @@ else
                 install_pkg "OBS Studio" obs-studio obs-studio obs-studio obs-studio
                 ;;
         esac
-        obs_exe=$(command -v obs 2>/dev/null) || abort "OBS installation succeeded but 'obs' not found in PATH."
+        if [[ "$NO_SUDO" -eq 0 ]]; then
+            obs_exe=$(command -v obs 2>/dev/null) || abort "OBS installation succeeded but 'obs' not found in PATH."
+        fi
     fi
-    find_obs
-    green "OBS $obs_ver installed"
+    if [[ "$NO_SUDO" -eq 0 ]]; then
+        find_obs
+        [[ -n "$obs_ver" ]] || abort "OBS was installed but its version could not be determined."
+        version_gte "$obs_ver" "$OBS_MIN_MAJOR.0" || \
+            abort "OBS $obs_ver was installed but version >= $OBS_MIN_MAJOR.0 is required.\nUpdate OBS via your package manager and re-run."
+        green "OBS $obs_ver installed"
+    fi
 fi
 
 # ── FFmpeg ────────────────────────────────────────────────────────────────────
@@ -184,10 +247,17 @@ else
             dnf)
                 # FFmpeg is in RPM Fusion free repo; enable it if needed.
                 if ! dnf list installed ffmpeg &>/dev/null; then
-                    echo "    enabling RPM Fusion free repo for FFmpeg ..."
-                    sudo dnf install -y \
-                        "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
-                        || true
+                    if grep -q '^ID=fedora$' /etc/os-release 2>/dev/null; then
+                        rpmfusion_url="https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm"
+                    else
+                        rpmfusion_url="https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-$(rpm -E %rhel).noarch.rpm"
+                    fi
+                    if [[ "$NO_SUDO" -eq 1 ]]; then
+                        _nosudo_precmds+=("sudo dnf install -y $rpmfusion_url")
+                    else
+                        echo "    enabling RPM Fusion free repo for FFmpeg ..."
+                        sudo dnf install -y "$rpmfusion_url"
+                    fi
                 fi
                 install_pkg "FFmpeg" ffmpeg ffmpeg ffmpeg ffmpeg
                 ;;
@@ -196,7 +266,7 @@ else
                 ;;
         esac
     fi
-    green "FFmpeg installed"
+    [[ "$NO_SUDO" -eq 0 ]] && green "FFmpeg installed"
 fi
 
 # ── Python 3.10+ ──────────────────────────────────────────────────────────────
@@ -237,19 +307,33 @@ else
             pacman) install_pkg "Python"      python     python     python python ;;
             zypper) install_pkg "Python 3.12" python312  python3.12 python python3.12 ;;
         esac
-        find_python || abort "Python >= $PYTHON_MIN was installed but cannot be found."
+        if [[ "$NO_SUDO" -eq 0 ]]; then
+            find_python || abort "Python >= $PYTHON_MIN was installed but cannot be found."
+        fi
     fi
-    py_ver=$("$python_exe" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-    green "Python $py_ver installed"
+    if [[ "$NO_SUDO" -eq 0 ]]; then
+        py_ver=$("$python_exe" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        green "Python $py_ver installed"
+    fi
 fi
 
 # Ensure python3-venv is available (needed to create the venv on Debian/Ubuntu).
-if [[ "$PLATFORM" == "linux" ]] && [[ "$PKG_MGR" == "apt" ]]; then
+# Skip when python_exe is empty: Python itself was just recorded as needed and
+# the apt branch of install_pkg already included python3.12-venv.
+if [[ "$PLATFORM" == "linux" ]] && [[ "$PKG_MGR" == "apt" ]] && [[ -n "$python_exe" ]]; then
     if ! "$python_exe" -m venv --help &>/dev/null; then
-        echo "    installing python3-venv ..."
-        sudo apt-get install -y python3-venv
+        py_venv_pkg="python$("$python_exe" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')-venv"
+        if [[ "$NO_SUDO" -eq 1 ]]; then
+            _nosudo_pkgs+=("$py_venv_pkg")
+        else
+            echo "    installing $py_venv_pkg ..."
+            sudo apt-get install -y "$py_venv_pkg"
+        fi
     fi
 fi
+
+# In --no-sudo mode: if any packages are needed, print install instructions and exit.
+[[ "$NO_SUDO" -eq 1 ]] && nosudo_flush
 
 # ── Venv ──────────────────────────────────────────────────────────────────────
 
