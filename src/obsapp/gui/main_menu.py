@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import customtkinter as ctk
 
-from .widgets import PADDING, MarkupLabel, fit_window, setup_keyboard_nav, show_message
+from .widgets import PADDING, MarkupLabel, _corrected_ctk_size, fit_window, setup_keyboard_nav, show_message
 
 if TYPE_CHECKING:
     from ..main import App
@@ -49,6 +49,7 @@ class MainMenuFrame(ctk.CTkFrame):
                 "Exit",
             ],
             command=self._on_action,
+            dropdown_font=ctk.CTkFont(size=_corrected_ctk_size(self.app, 13)),
         )
         self._action_menu.pack(padx=PADDING, pady=(0, PADDING))
 

@@ -2,6 +2,7 @@
 
 import math
 import re
+import sys
 import tkinter as tk
 from tkinter.font import Font
 from typing import Union
@@ -10,6 +11,35 @@ import customtkinter as ctk
 from tkinter import filedialog
 
 PADDING = 20  # ~2 em
+
+
+def _corrected_ctk_size(widget: tk.Widget, base_size: int) -> int:
+    """Return a CTkFont logical size corrected for HiDPI on Linux/Wayland.
+
+    CTk queries Xft.dpi via ``xrdb -query`` to set its scaling factor. Under
+    Wayland (Fedora, etc.) xrdb is unpopulated, so CTk falls back to 96 dpi
+    (scaling=1.0) even on HiDPI displays. Tk itself reads the screen DPI via
+    ``winfo_fpixels``, which is correct. When the two disagree by more than
+    40 %, ``CTkFont(base_size)`` renders far too small; this function returns
+    an adjusted logical size so CTkFont renders at the same pixel count that
+    ``tk.Font(size=base_size)`` (points-based, DPI-aware) would produce.
+
+    On Windows, macOS, and Linux where CTk detects DPI correctly, returns
+    ``base_size`` unchanged.
+    """
+    if sys.platform != "linux":
+        return base_size
+    try:
+        px_per_pt: float = widget.winfo_fpixels("1p")
+        ctk_scaling: float = widget.winfo_toplevel()._get_window_scaling()  # type: ignore[attr-defined]
+    except Exception:
+        return base_size
+    # Expected relationship when CTk is correct: ctk_scaling ≈ px_per_pt * 0.75
+    # (because ctk_scaling = dpi/96 and px_per_pt = dpi/72).
+    # If CTk's scaling is < 60 % of what the screen DPI implies, compensate.
+    if ctk_scaling >= px_per_pt * 0.6:
+        return base_size
+    return round(base_size * px_per_pt / ctk_scaling)
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +300,7 @@ def show_message(parent, title: str, message: str) -> None:
 
     ctk.CTkLabel(
         dialog, text=message, wraplength=400, justify="left",
+        font=ctk.CTkFont(size=_corrected_ctk_size(parent, 13)),
     ).pack(padx=PADDING, pady=(PADDING, 10))
 
     ok_btn = ctk.CTkButton(dialog, text="OK", command=dialog.destroy)
@@ -296,6 +327,7 @@ def ask_confirmation(parent, title: str, message: str) -> bool:
 
     ctk.CTkLabel(
         dialog, text=message, wraplength=400, justify="left",
+        font=ctk.CTkFont(size=_corrected_ctk_size(parent, 13)),
     ).pack(padx=PADDING, pady=(PADDING, 10))
 
     btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
