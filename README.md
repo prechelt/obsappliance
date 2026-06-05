@@ -162,7 +162,6 @@ For development history, see [docs/changelog.md](docs/changelog.md).
 
 OBSappliance's `main.py` is called with a single argument, an `.ini` config file.
 Its directory is the obsapp directory.
-The OBS config files that obsapp creates dynamically will live in it.
 Python, the Python venv, OBS Studio, and FFmpeg may live in that directory or elsewhere.
 Here is an example how it may look in an installed version of obsapp on Windows:
 ```ini
@@ -172,8 +171,6 @@ ffmpeg_executable=C:\Tools\obsapp\ffmpeg\bin\ffmpeg.exe
 venv_dir=C:\Tools\obsapp\venv
 # The obs_config_dir will be the 'obs-config' subdirectory of the present file's location.
 ```
-When obsapp starts, it immediately changes into the obsapp directory, so that the config file
-can use relative paths, so that the obsapp directory can be relocated easily.
 
 Here is a manually created variant for a development setup on Windows where all parts are in a standard place:
 ```ini
