@@ -367,7 +367,8 @@ else
     fi
 fi
 
-"$PIP" install --quiet "$obsapp_url"
+"$PIP" install --quiet --force-reinstall "$obsapp_url"
+green "$PIP" install --quiet --force-reinstall "$obsapp_url"
 green "OBSapp installed"
 
 # ── Config file ───────────────────────────────────────────────────────────────
