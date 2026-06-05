@@ -19,7 +19,7 @@ from ..constants import (
     PIP_SIZE_SMALL,
     PIP_WEBCAM_ASPECT,
 )
-from .widgets import PADDING, ask_confirmation, choose_save_file, fit_window, fix_textbox_tab, setup_keyboard_nav, show_message
+from .widgets import PADDING, _corrected_ctk_size, ask_confirmation, choose_save_file, fit_window, fix_textbox_tab, setup_keyboard_nav, show_message
 
 if TYPE_CHECKING:
     from ..main import App
@@ -67,8 +67,10 @@ class RecordDialogFrame(ctk.CTkFrame):
 
         defaults = app.config_store.load()
 
+        _font = ctk.CTkFont(size=_corrected_ctk_size(app, 13))
+
         # ── Monitor ──
-        ctk.CTkLabel(self, text="Which screen to record:").pack(
+        ctk.CTkLabel(self, text="Which screen to record:", font=_font).pack(
             anchor="w", padx=PADDING, pady=(PADDING, 2),
         )
         self._monitor_var = ctk.StringVar()
@@ -80,13 +82,14 @@ class RecordDialogFrame(ctk.CTkFrame):
         }
         self._monitor_menu = ctk.CTkOptionMenu(
             self, variable=self._monitor_var, values=monitor_names,
+            font=_font, dropdown_font=_font,
         )
         self._monitor_menu.pack(padx=PADDING, fill="x")
         if defaults.get("monitor") in monitor_names:
             self._monitor_var.set(defaults["monitor"])
 
         # ── Microphone ──
-        ctk.CTkLabel(self, text="Which microphone to record:").pack(
+        ctk.CTkLabel(self, text="Which microphone to record:", font=_font).pack(
             anchor="w", padx=PADDING, pady=(10, 2),
         )
         self._mic_var = ctk.StringVar(value="<no audio>")
@@ -95,13 +98,14 @@ class RecordDialogFrame(ctk.CTkFrame):
         self._mic_map = dict(mics)
         self._mic_menu = ctk.CTkOptionMenu(
             self, variable=self._mic_var, values=mic_names,
+            font=_font, dropdown_font=_font,
         )
         self._mic_menu.pack(padx=PADDING, fill="x")
         if defaults.get("mic") in mic_names:
             self._mic_var.set(defaults["mic"])
 
         # ── Webcam ──
-        ctk.CTkLabel(self, text="Which webcam to record:").pack(
+        ctk.CTkLabel(self, text="Which webcam to record:", font=_font).pack(
             anchor="w", padx=PADDING, pady=(10, 2),
         )
         self._webcam_var = ctk.StringVar(value="<no webcam>")
@@ -111,6 +115,7 @@ class RecordDialogFrame(ctk.CTkFrame):
         self._webcam_menu = ctk.CTkOptionMenu(
             self, variable=self._webcam_var, values=webcam_names,
             command=self._on_webcam_changed,
+            font=_font, dropdown_font=_font,
         )
         self._webcam_menu.pack(padx=PADDING, fill="x")
         if defaults.get("webcam") in webcam_names:
@@ -124,7 +129,7 @@ class RecordDialogFrame(ctk.CTkFrame):
             value=_parse_pip_size(defaults.get("pip_size"), PIP_SIZE_SMALL)
         )
         self._pip_frame = ctk.CTkFrame(self, fg_color="transparent")
-        ctk.CTkLabel(self._pip_frame, text="Webcam position:").pack(
+        ctk.CTkLabel(self._pip_frame, text="Webcam position:", font=_font).pack(
             anchor="w", pady=(0, 2),
         )
         bg = self.winfo_toplevel().cget("background") if self.winfo_toplevel() else "white"
@@ -141,12 +146,13 @@ class RecordDialogFrame(ctk.CTkFrame):
         self._pip_canvas.bind("<Button-1>", self._on_pip_click)
         size_row = ctk.CTkFrame(self._pip_frame, fg_color="transparent")
         size_row.pack(anchor="w", pady=(4, 0))
-        ctk.CTkLabel(size_row, text="PiP insert height:").pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(size_row, text="PiP insert height:", font=_font).pack(side="left", padx=(0, 8))
         for px in (PIP_SIZE_SMALL, PIP_SIZE_MEDIUM, PIP_SIZE_LARGE):
             ctk.CTkRadioButton(
                 size_row, text=f"{px} pixel",
                 variable=self._pip_size_var, value=px,
                 command=self._pip_draw,
+                font=_font,
             ).pack(side="left", padx=(0, 10))
         # Show or hide pip_frame based on the current (defaulted) webcam choice.
         if self._webcam_var.get() != "<no webcam>":
@@ -154,7 +160,7 @@ class RecordDialogFrame(ctk.CTkFrame):
             self._pip_draw()
 
         # ── Target file ──
-        ctk.CTkLabel(self, text="Target MP4 file:").pack(
+        ctk.CTkLabel(self, text="Target MP4 file:", font=_font).pack(
             anchor="w", padx=PADDING, pady=(10, 2),
         )
         file_row = ctk.CTkFrame(self, fg_color="transparent")
@@ -167,11 +173,11 @@ class RecordDialogFrame(ctk.CTkFrame):
         else:
             stored = stamp + ".mp4"
         self._file_var = ctk.StringVar(value=stored)
-        self._file_entry = ctk.CTkEntry(file_row, textvariable=self._file_var)
+        self._file_entry = ctk.CTkEntry(file_row, textvariable=self._file_var, font=_font)
         self._file_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
         self._file_entry.bind("<Return>", lambda e: self._on_record())
         browse_btn = ctk.CTkButton(
-            file_row, text="Browse…", width=80, command=self._browse,
+            file_row, text="Browse…", width=80, command=self._browse, font=_font,
         )
         browse_btn.pack(side="right")
 
@@ -183,10 +189,10 @@ class RecordDialogFrame(ctk.CTkFrame):
         # ── Buttons ──
         btn_row = ctk.CTkFrame(self, fg_color="transparent")
         btn_row.pack(padx=PADDING, pady=PADDING)
-        record_btn = ctk.CTkButton(btn_row, text="Record", command=self._on_record)
+        record_btn = ctk.CTkButton(btn_row, text="Record", command=self._on_record, font=_font)
         record_btn.pack(side="left", padx=5)
         cancel_btn = ctk.CTkButton(
-            btn_row, text="Cancel", command=self.app.show_main_menu,
+            btn_row, text="Cancel", command=self.app.show_main_menu, font=_font,
         )
         cancel_btn.pack(side="left", padx=5)
 
@@ -322,21 +328,22 @@ class RecordingFrame(ctk.CTkFrame):
         self.target_path = target_path
         self._paused = False
 
+        _font = ctk.CTkFont(size=_corrected_ctk_size(app, 13))
         ctk.CTkLabel(
             self,
             text="Recording…",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            font=ctk.CTkFont(size=_corrected_ctk_size(app, 16), weight="bold"),
         ).pack(padx=PADDING, pady=(PADDING, 10))
 
         btn_row = ctk.CTkFrame(self, fg_color="transparent")
         btn_row.pack(padx=PADDING, pady=(0, PADDING))
 
         self._pause_btn = ctk.CTkButton(
-            btn_row, text="Pause", command=self._on_pause,
+            btn_row, text="Pause", command=self._on_pause, font=_font,
         )
         self._pause_btn.pack(side="left", padx=5)
 
-        stop_btn = ctk.CTkButton(btn_row, text="Stop", command=self._on_stop)
+        stop_btn = ctk.CTkButton(btn_row, text="Stop", command=self._on_stop, font=_font)
         stop_btn.pack(side="left", padx=5)
 
         setup_keyboard_nav(self._pause_btn, stop_btn)

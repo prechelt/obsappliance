@@ -291,6 +291,20 @@ def fit_window(app: ctk.CTk, frame: ctk.CTkFrame, min_w: int) -> None:
         app._refit_callback = lambda: fit_window(app, frame, min_w)  # type: ignore[attr-defined]
 
 
+def _fit_dialog(dialog: ctk.CTkToplevel) -> None:
+    """Set a CTkToplevel's geometry to its natural content size, corrected for HiDPI.
+
+    Same principle as fit_window(): winfo_req* returns screen pixels; dividing by
+    CTk's (possibly wrong) scaling factor and passing to geometry() produces the
+    correct physical window size even when CTk's scaling is 1.0 on Wayland HiDPI.
+    """
+    dialog.update_idletasks()
+    scaling = dialog._get_window_scaling()  # type: ignore[attr-defined]
+    h = round(dialog.winfo_reqheight() / scaling)
+    w = round(dialog.winfo_reqwidth() / scaling)
+    dialog.geometry(f"{w}x{h}")
+
+
 def show_message(parent, title: str, message: str) -> None:
     """Modal message window with a single OK button."""
     dialog = ctk.CTkToplevel(parent)
@@ -298,17 +312,19 @@ def show_message(parent, title: str, message: str) -> None:
     dialog.transient(parent)
     dialog.resizable(False, False)
 
+    _font = ctk.CTkFont(size=_corrected_ctk_size(parent, 13))
     ctk.CTkLabel(
         dialog, text=message, wraplength=400, justify="left",
-        font=ctk.CTkFont(size=_corrected_ctk_size(parent, 13)),
+        font=_font,
     ).pack(padx=PADDING, pady=(PADDING, 10))
 
-    ok_btn = ctk.CTkButton(dialog, text="OK", command=dialog.destroy)
+    ok_btn = ctk.CTkButton(dialog, text="OK", command=dialog.destroy, font=_font)
     ok_btn.pack(padx=PADDING, pady=(0, PADDING))
     setup_keyboard_nav(ok_btn)
     dialog.bind("<Return>", lambda e: dialog.destroy())
     dialog.bind("<Escape>", lambda e: dialog.destroy())
     dialog.after(0, ok_btn.focus_set)
+    _fit_dialog(dialog)
     # wait_visibility() ensures the window is mapped before grab_set().
     # On Linux, grab_set() raises TclError if called before the window is shown.
     dialog.wait_visibility()
@@ -325,9 +341,10 @@ def ask_confirmation(parent, title: str, message: str) -> bool:
     dialog.transient(parent)
     dialog.resizable(False, False)
 
+    _font = ctk.CTkFont(size=_corrected_ctk_size(parent, 13))
     ctk.CTkLabel(
         dialog, text=message, wraplength=400, justify="left",
-        font=ctk.CTkFont(size=_corrected_ctk_size(parent, 13)),
+        font=_font,
     ).pack(padx=PADDING, pady=(PADDING, 10))
 
     btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
@@ -337,14 +354,15 @@ def ask_confirmation(parent, title: str, message: str) -> bool:
         result[0] = True
         dialog.destroy()
 
-    ok_btn = ctk.CTkButton(btn_frame, text="OK", command=on_ok)
+    ok_btn = ctk.CTkButton(btn_frame, text="OK", command=on_ok, font=_font)
     ok_btn.pack(side="left", padx=5)
-    cancel_btn = ctk.CTkButton(btn_frame, text="Cancel", command=dialog.destroy)
+    cancel_btn = ctk.CTkButton(btn_frame, text="Cancel", command=dialog.destroy, font=_font)
     cancel_btn.pack(side="left", padx=5)
     setup_keyboard_nav(ok_btn, cancel_btn)
     dialog.bind("<Return>", lambda e: on_ok())
     dialog.bind("<Escape>", lambda e: dialog.destroy())
     dialog.after(0, ok_btn.focus_set)
+    _fit_dialog(dialog)
     # wait_visibility() ensures the window is mapped before grab_set().
     # On Linux, grab_set() raises TclError if called before the window is shown.
     dialog.wait_visibility()

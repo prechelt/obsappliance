@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import customtkinter as ctk
 from tkinter import filedialog
 
-from .widgets import PADDING, MarkupLabel, fit_window, fix_textbox_tab, setup_keyboard_nav, show_message
+from .widgets import PADDING, MarkupLabel, _corrected_ctk_size, fit_window, fix_textbox_tab, setup_keyboard_nav, show_message
 
 if TYPE_CHECKING:
     from ..main import App
@@ -40,38 +40,40 @@ class CensorDialogFrame(ctk.CTkFrame):
         )
         self._explanation_label.pack(anchor="w", padx=PADDING, pady=(PADDING, 10))
 
+        _font = ctk.CTkFont(size=_corrected_ctk_size(app, 13))
+
         # ── input file row ──
-        ctk.CTkLabel(self, text="MP4 file:").pack(
+        ctk.CTkLabel(self, text="MP4 file:", font=_font).pack(
             anchor="w", padx=PADDING, pady=(0, 2),
         )
         file_row = ctk.CTkFrame(self, fg_color="transparent")
         file_row.pack(padx=PADDING, fill="x")
         self._file_var = ctk.StringVar()
-        self._file_entry = ctk.CTkEntry(file_row, textvariable=self._file_var)
+        self._file_entry = ctk.CTkEntry(file_row, textvariable=self._file_var, font=_font)
         self._file_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
         browse_btn = ctk.CTkButton(
-            file_row, text="Browse…", width=80, command=self._browse,
+            file_row, text="Browse…", width=80, command=self._browse, font=_font,
         )
         browse_btn.pack(side="right")
 
         # ── ranges text area ──
-        ctk.CTkLabel(self, text="Time ranges to remove (one per line):").pack(
+        ctk.CTkLabel(self, text="Time ranges to remove (one per line):", font=_font).pack(
             anchor="w", padx=PADDING, pady=(10, 2),
         )
-        self._ranges_box = ctk.CTkTextbox(self, height=120)
+        self._ranges_box = ctk.CTkTextbox(self, height=120, font=_font)
         self._ranges_box.pack(padx=PADDING, fill="x")
 
         # ── progress label (hidden until operation starts) ──
-        self._progress_label = ctk.CTkLabel(self, text="")
+        self._progress_label = ctk.CTkLabel(self, text="", font=_font)
         self._progress_label.pack(padx=PADDING, pady=(6, 0))
 
         # ── buttons ──
         btn_row = ctk.CTkFrame(self, fg_color="transparent")
         btn_row.pack(padx=PADDING, pady=PADDING)
-        self._ok_btn = ctk.CTkButton(btn_row, text="OK", command=self._on_ok)
+        self._ok_btn = ctk.CTkButton(btn_row, text="OK", command=self._on_ok, font=_font)
         self._ok_btn.pack(side="left", padx=5)
         cancel_btn = ctk.CTkButton(
-            btn_row, text="Cancel", command=self.app.show_main_menu,
+            btn_row, text="Cancel", command=self.app.show_main_menu, font=_font,
         )
         cancel_btn.pack(side="left", padx=5)
 

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import customtkinter as ctk
 from tkinter import filedialog
 
-from .widgets import PADDING, MarkupLabel, fit_window, fix_textbox_tab, setup_keyboard_nav, show_message
+from .widgets import PADDING, MarkupLabel, _corrected_ctk_size, fit_window, fix_textbox_tab, setup_keyboard_nav, show_message
 from ..video_ops import find_ffmpeg, validate_concat_inputs, concatenate
 
 if TYPE_CHECKING:
@@ -34,6 +34,8 @@ class ConcatDialogFrame(ctk.CTkFrame):
 
         defaults = app.config_store.load()
 
+        _font = ctk.CTkFont(size=_corrected_ctk_size(app, 13))
+
         # ── explanation ──
         self._explanation_label = MarkupLabel(
             self,
@@ -42,10 +44,10 @@ class ConcatDialogFrame(ctk.CTkFrame):
         self._explanation_label.pack(anchor="w", padx=PADDING, pady=(PADDING, 10))
 
         # ── file list (editable, scrollable, one path per line) ──
-        ctk.CTkLabel(self, text="Files to concatenate (one path per line):").pack(
+        ctk.CTkLabel(self, text="Files to concatenate (one path per line):", font=_font).pack(
             anchor="w", padx=PADDING, pady=(0, 2),
         )
-        self._list_box = ctk.CTkTextbox(self, height=120, wrap="none")
+        self._list_box = ctk.CTkTextbox(self, height=120, wrap="none", font=_font)
         self._list_box.pack(padx=PADDING, fill="x")
 
         # ── add input files (Browse opens a multi-select picker) ──
@@ -53,37 +55,38 @@ class ConcatDialogFrame(ctk.CTkFrame):
             self,
             text="Add input file(s)…",
             command=self._browse_input,
+            font=_font,
         )
         add_btn.pack(anchor="w", padx=PADDING, pady=(6, 0))
 
         # ── output file row ──
-        ctk.CTkLabel(self, text="Output file:").pack(
+        ctk.CTkLabel(self, text="Output file:", font=_font).pack(
             anchor="w", padx=PADDING, pady=(10, 2),
         )
         out_row = ctk.CTkFrame(self, fg_color="transparent")
         out_row.pack(padx=PADDING, fill="x")
         self._output_var = ctk.StringVar(value=defaults.get("concat_output_file", ""))
-        self._output_entry = ctk.CTkEntry(out_row, textvariable=self._output_var)
+        self._output_entry = ctk.CTkEntry(out_row, textvariable=self._output_var, font=_font)
         self._output_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
         self._output_entry.bind("<Return>", lambda e: self._on_done())
         browse_out_btn = ctk.CTkButton(
-            out_row, text="Browse…", width=80, command=self._browse_output,
+            out_row, text="Browse…", width=80, command=self._browse_output, font=_font,
         )
         browse_out_btn.pack(side="right")
 
         # ── progress label ──
-        self._progress_label = ctk.CTkLabel(self, text="")
+        self._progress_label = ctk.CTkLabel(self, text="", font=_font)
         self._progress_label.pack(padx=PADDING, pady=(6, 0))
 
         # ── buttons ──
         btn_row = ctk.CTkFrame(self, fg_color="transparent")
         btn_row.pack(padx=PADDING, pady=PADDING)
         self._done_btn = ctk.CTkButton(
-            btn_row, text="Concatenate now", command=self._on_done,
+            btn_row, text="Concatenate now", command=self._on_done, font=_font,
         )
         self._done_btn.pack(side="left", padx=5)
         cancel_btn = ctk.CTkButton(
-            btn_row, text="Cancel", command=self.app.show_main_menu,
+            btn_row, text="Cancel", command=self.app.show_main_menu, font=_font,
         )
         cancel_btn.pack(side="left", padx=5)
 

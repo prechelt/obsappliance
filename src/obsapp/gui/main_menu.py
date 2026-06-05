@@ -38,6 +38,7 @@ class MainMenuFrame(ctk.CTkFrame):
         self._explanation_label.pack(padx=PADDING, pady=(PADDING, 10), fill="x")
 
         self._action_var = ctk.StringVar(value="Select action...")
+        _font = ctk.CTkFont(size=_corrected_ctk_size(self.app, 13))
         self._action_menu = ctk.CTkOptionMenu(
             self,
             variable=self._action_var,
@@ -49,7 +50,8 @@ class MainMenuFrame(ctk.CTkFrame):
                 "Exit",
             ],
             command=self._on_action,
-            dropdown_font=ctk.CTkFont(size=_corrected_ctk_size(self.app, 13)),
+            font=_font,
+            dropdown_font=_font,
         )
         self._action_menu.pack(padx=PADDING, pady=(0, PADDING))
 
