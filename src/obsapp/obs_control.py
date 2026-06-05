@@ -337,10 +337,6 @@ class OBSController:
 
     # ── private helpers ───────────────────────────────────────────────
 
-    def _obs_config_path(self) -> Path:
-        """OBS config directory used by this OBSapp installation."""
-        return self.obs_config_dir
-
     def _obs_system_config_dir(self) -> Path:
         """Return the directory where OBS actually reads its config.
 
@@ -531,7 +527,7 @@ class OBSController:
         """
         assert self.ws is not None
         # Persist to disk so next launch also uses the right resolution.
-        prof_ini = self._obs_config_path() / "basic" / "profiles" / "OBSapp" / "basic.ini"
+        prof_ini = self._obs_system_config_dir() / "basic" / "profiles" / "OBSapp" / "basic.ini"
         cfg = configparser.RawConfigParser()
         cfg.optionxform = str  # preserve key case (OBS is case-sensitive)
         if prof_ini.exists():
