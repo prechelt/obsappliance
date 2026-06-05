@@ -36,6 +36,8 @@ from .os_specifics import (
 )
 
 # Platform-specific source types and the property name that lists available devices.
+# For Linux monitor capture, _LINUX_MONITOR_CANDIDATES is probed at runtime instead
+# because the correct kind depends on whether OBS is running under X11 or Wayland.
 _SOURCE_TYPES = {
     "win32": {
         "monitor": ("monitor_capture", "monitor_id"),
@@ -43,7 +45,6 @@ _SOURCE_TYPES = {
         "webcam": ("dshow_input", "video_device_id"),
     },
     "linux": {
-        "monitor": ("xshm_input", "screen"),
         "mic": ("pulse_input_capture", "device_id"),
         "webcam": ("v4l2_input", "device_id"),
     },
@@ -53,6 +54,16 @@ _SOURCE_TYPES = {
         "webcam": ("av_capture_input", "device"),
     },
 }
+
+# Linux monitor source candidates in preference order.
+# Each entry is (kind, screen_property_or_None).  A None property means the
+# source does not accept a pre-selected screen identifier (e.g. Wayland/PipeWire
+# sources require an XDG portal dialog for screen selection).
+_LINUX_MONITOR_CANDIDATES: list[tuple[str, str | None]] = [
+    ("xshm_input", "screen"),                        # X11
+    ("pipewire-desktop-capture", None),              # Wayland / PipeWire (OBS 28+)
+    ("xdg_desktop_portal_desktop_capture", None),   # Wayland / PipeWire (alternate name)
+]
 
 _SCENE_NAME = "OBSapp_Recording"
 _WS_PORT = 4455
@@ -73,6 +84,8 @@ class OBSController:
         self._process: subprocess.Popen | None = None
         self.ws: obsws.ReqClient | None = None
         self._platform = "linux" if sys.platform.startswith("linux") else sys.platform
+        # Detected at runtime after OBS connects; None until then.
+        self._linux_monitor_kind: tuple[str, str | None] | None = None
 
     # ── public helpers ────────────────────────────────────────────────
 
@@ -235,6 +248,27 @@ class OBSController:
 
     # ── recording control ─────────────────────────────────────────────
 
+    def _get_linux_monitor_kind(self) -> tuple[str, str | None]:
+        """Return the best available (kind, screen_prop) for Linux monitor capture.
+
+        Queries OBS for its registered input kinds and picks the first match
+        from _LINUX_MONITOR_CANDIDATES, so this works on both X11 (xshm_input)
+        and Wayland (pipewire-desktop-capture).  Result is cached per session.
+        """
+        if self._linux_monitor_kind is not None:
+            return self._linux_monitor_kind
+        try:
+            assert self.ws is not None
+            available = set(self.ws.get_input_kind_list(unversioned=True).input_kinds)
+            for kind, prop in _LINUX_MONITOR_CANDIDATES:
+                if kind in available:
+                    self._linux_monitor_kind = (kind, prop)
+                    return self._linux_monitor_kind
+        except Exception:
+            pass
+        self._linux_monitor_kind = _LINUX_MONITOR_CANDIDATES[0]  # X11 fallback
+        return self._linux_monitor_kind
+
     def setup_recording(
         self,
         monitor_value: str,
@@ -286,10 +320,15 @@ class OBSController:
             time.sleep(0.5)
         # Add monitor capture.
         types = _SOURCE_TYPES[self._platform]
-        mon_kind, mon_prop = types["monitor"]
+        if self._platform == "linux":
+            mon_kind, mon_prop = self._get_linux_monitor_kind()
+        else:
+            mon_kind, mon_prop = types["monitor"]
+        # On Wayland (PipeWire sources), there is no screen-ID property; the
+        # user selects the screen via the XDG portal dialog that OBS opens.
+        mon_settings = {mon_prop: monitor_value} if mon_prop is not None else {}
         self.ws.create_input(
-            _SCENE_NAME, "OBSapp_Monitor", mon_kind,
-            {mon_prop: monitor_value}, True,
+            _SCENE_NAME, "OBSapp_Monitor", mon_kind, mon_settings, True,
         )
         # Add microphone (if selected).
         if mic_value:
