@@ -50,7 +50,7 @@ installation is always directly from GitHub.
 There is no PyPI package because the standard install processes of those do not fit well
 with the dependency management that our shell-script installer performs.
 
-### 2.1 Windows
+### 2.1 Installation on Windows
 
 Create an empty directory anywhere you like (e.g. in your home directory).
 Change into it.
@@ -65,7 +65,9 @@ then installs OBSapp and creates a desktop shortcut.
 A launcher is written into the install directory as `run-obsapp.bat`.
 No administrator rights required.
 
-### 2.2 macOS
+### 2.2 Installation on macOS
+
+NOT YET AVAILABLE.
 
 [Homebrew](https://brew.sh) 
 must be installed first.
@@ -80,7 +82,7 @@ if suitable versions are found in the PATH, uses those.
 Installs OBSapp into `~/.local/share/obsapp/venv` and !!!. 
 A launcher is placed at `~/.local/bin/obsapp` and a shortcut at `~/Desktop/OBSapp.app`.
 
-### 2.3 Linux
+### 2.3 Installation on Linux
 
 ```bash
 bash installer/install.sh
@@ -99,6 +101,17 @@ OBS Studio, FFmpeg, and system packages are left untouched; only OBSapp is reins
 
 To install from the `main` branch instead of the latest release, 
 add `--current` (Linux/macOS) or `-Current` (Windows).
+
+### 2.5 Uninstall
+
+Just delete the entire installation directory.
+
+### 2.6 Release Notes
+
+The installer will always install the newest version;
+there are no formal releases, at least yet.
+
+For development history, see [docs/changelog.md](docs/changelog.md).
 
 
 ## 3. Architecture

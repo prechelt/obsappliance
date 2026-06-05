@@ -58,5 +58,6 @@ MIC_COMP_OUTPUT_GAIN_DB: float = 0.0  # dB makeup gain — increase if overall l
 
 # ── Duration of the inserted announcement slides ──────────────────────────────
 
+# TODO 2: replace hardcoded values by these:
 CENSORING_REPLACEMENTSLIDE_DURATION_SECS = 1
 CONCATENATE_FILENAMESLIDE_DURATION_SECS = 1
