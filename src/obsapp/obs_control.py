@@ -91,7 +91,15 @@ class OBSController:
 
     @property
     def is_running(self) -> bool:
-        return self.ws is not None
+        if self.ws is None:
+            return False
+        if self._process is not None and self._process.poll() is not None:
+            # OBS process exited (e.g. user closed the window); clear stale state.
+            self.ws = None
+            self._process = None
+            self._linux_monitor_kind = None
+            return False
+        return True
 
     # ── OBS lifecycle ─────────────────────────────────────────────────
 
