@@ -268,10 +268,14 @@ class OBSController:
         try:
             assert self.ws is not None
             available = set(self.ws.get_input_kind_list(unversioned=True).input_kinds)
+            on_wayland = bool(os.environ.get("WAYLAND_DISPLAY"))
             for kind, prop in _LINUX_MONITOR_CANDIDATES:
-                if kind in available:
-                    self._linux_monitor_kind = (kind, prop)
-                    return self._linux_monitor_kind
+                if kind not in available:
+                    continue
+                if on_wayland and kind == "xshm_input":
+                    continue  # registered but non-functional under Wayland
+                self._linux_monitor_kind = (kind, prop)
+                return self._linux_monitor_kind
         except Exception:
             pass
         self._linux_monitor_kind = _LINUX_MONITOR_CANDIDATES[0]  # X11 fallback
