@@ -113,15 +113,28 @@ class App(ctk.CTk):
                 font=ctk.CTkFont(size=14),
             )
             loading.pack(padx=PADDING, pady=PADDING)
+            hint = None
+            if sys.platform.startswith("linux"):
+                hint = ctk.CTkLabel(
+                    self,
+                    text="An OBS Studio window will open.\nMinimize it, but do not close it\n— OBSapp relies on that process.",
+                    font=ctk.CTkFont(size=12),
+                    justify="left",
+                )
+                hint.pack(padx=PADDING, pady=(0, PADDING))
             self.update()
             try:
                 self.obs.start()
             except Exception as exc:
                 loading.destroy()
+                if hint:
+                    hint.destroy()
                 show_message(self, "OBSapp: Error", f"Failed to start OBS:\n{exc}")
                 self.show_main_menu()
                 return
             loading.destroy()
+            if hint:
+                hint.destroy()
 
         self._show_frame(RecordDialogFrame(self, app=self), title="OBSapp: Record video")
 
