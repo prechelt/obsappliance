@@ -236,7 +236,7 @@ fi
 cyan "FFmpeg"
 
 if command -v ffmpeg &>/dev/null; then
-    ffmpeg_ver=$(ffmpeg -version 2>&1 | grep -oE 'version [0-9]+\.[0-9]+' | head -1 | cut -d' ' -f2)
+    ffmpeg_ver=$(ffmpeg -version 2>&1 | grep -oE 'version \w?[0-9]+\.[0-9]+' | head -1 | cut -d' ' -f2)
     yellow "FFmpeg $ffmpeg_ver"
 else
     if [[ "$PLATFORM" == "macos" ]]; then
