@@ -446,7 +446,7 @@ class OBSController:
         if not ini.exists():
             ini.write_text(
                 "[General]\n"
-                "Name=OBSapp\n"
+                "Name = OBSapp\n"
                 "\n"
                 "[Video]\n"
                 "FPSType=2\n"
@@ -605,7 +605,7 @@ class OBSController:
         assert self.ws is not None
         # Persist to disk so next launch also uses the right resolution.
         prof_ini = self._obs_system_config_dir() / "basic" / "profiles" / "OBSapp" / "basic.ini"
-        cfg = configparser.RawConfigParser()
+        cfg = configparser.RawConfigParser(strict=False)
         cfg.optionxform = str  # preserve key case (OBS is case-sensitive)
         if prof_ini.exists():
             cfg.read(prof_ini, encoding="utf-8-sig")
