@@ -442,13 +442,16 @@ def _enum_webcams_win32() -> list[tuple[str, str]]:
 # Linux
 # ---------------------------------------------------------------------------
 
-def _enum_monitors_linux() -> list[tuple[str, str, int, int]]:
+def _enum_monitors_linux(log=None) -> list[tuple[str, str, int, int]]:
     """Return monitor list on Linux, using xrandr on X11 or DRM sysfs on Wayland."""
+    _l = log or (lambda msg: None)
     try:
         out = subprocess.check_output(
             ["xrandr", "--listmonitors"], text=True, stderr=subprocess.DEVNULL,
         )
-    except Exception:
+        _l(f"xrandr --listmonitors: {len(out.splitlines())} lines")
+    except Exception as exc:
+        _l(f"xrandr failed: {exc}")
         out = ""
     results = []
     for line in out.splitlines():
@@ -460,27 +463,37 @@ def _enum_monitors_linux() -> list[tuple[str, str, int, int]]:
         return results
     # xrandr returned nothing — likely pure Wayland.  Fall back to DRM sysfs.
     # The value (connector name) is not passed to OBS on Wayland; resolution is.
+    _l("xrandr gave no monitors — trying DRM sysfs")
     for modes_path in sorted(glob.glob("/sys/class/drm/card*-*/modes")):
         status_path = modes_path.replace("/modes", "/status")
         try:
-            if Path(status_path).read_text().strip() != "connected":
+            status = Path(status_path).read_text().strip()
+            connector = Path(modes_path).parent.name.split("-", 1)[1]
+            if status != "connected":
+                _l(f"DRM {connector}: {status}, skipping")
                 continue
             first_mode = Path(modes_path).read_text().strip().splitlines()[0]
             w, h = map(int, first_mode.split("x"))
-            connector = Path(modes_path).parent.name.split("-", 1)[1]
+            _l(f"DRM {connector}: connected {w}x{h}")
             results.append((f"{connector} ({w}×{h})", connector, w, h))
-        except Exception:
+        except Exception as exc:
+            _l(f"DRM {modes_path}: error {exc}")
             continue
+    if not results:
+        _l("DRM sysfs also gave no monitors")
     return results
 
 
-def _enum_mics_linux() -> list[tuple[str, str]]:
+def _enum_mics_linux(log=None) -> list[tuple[str, str]]:
     """Return microphone list on Linux using pactl."""
+    _l = log or (lambda msg: None)
     try:
         out = subprocess.check_output(
             ["pactl", "list", "sources"], text=True, stderr=subprocess.DEVNULL,
         )
-    except Exception:
+        _l(f"pactl list sources: {len(out.splitlines())} lines")
+    except Exception as exc:
+        _l(f"pactl failed: {exc}")
         return []
     results = []
     current_name = current_desc = None
@@ -499,7 +512,7 @@ def _enum_mics_linux() -> list[tuple[str, str]]:
     return results
 
 
-def _enum_webcams_linux() -> list[tuple[str, str]]:
+def _enum_webcams_linux(log=None) -> list[tuple[str, str]]:
     """Return [(friendly_name, device_path), ...] for V4L2 video-capture devices.
 
     Uses ``VIDIOC_QUERYCAP`` (pure Python ``fcntl``) to read the device
@@ -518,6 +531,8 @@ def _enum_webcams_linux() -> list[tuple[str, str]]:
     import glob
     import struct
 
+    _l = log or (lambda msg: None)
+
     # VIDIOC_QUERYCAP ioctl number (Linux, little-endian).
     # v4l2_capability struct layout (104 bytes as seen by this ioctl):
     #   driver[16], card[32], bus_info[32], version[4],
@@ -531,17 +546,21 @@ def _enum_webcams_linux() -> list[tuple[str, str]]:
 
     results: list[tuple[str, str]] = []
     seen_cards: set[str] = set()
+    video_nodes = sorted(glob.glob("/dev/video*"))
+    _l(f"V4L2 nodes found: {video_nodes}")
 
-    for dev_path in sorted(glob.glob("/dev/video*")):
+    for dev_path in video_nodes:
         # Open O_NONBLOCK so we don't block on cameras in use.
         try:
             fd = os.open(dev_path, os.O_RDONLY | os.O_NONBLOCK)
-        except OSError:
+        except OSError as exc:
+            _l(f"{dev_path}: open failed: {exc}")
             continue
         try:
             buf = bytearray(_BUF_SIZE)
             fcntl.ioctl(fd, VIDIOC_QUERYCAP, buf)
-        except OSError:
+        except OSError as exc:
+            _l(f"{dev_path}: VIDIOC_QUERYCAP failed: {exc}")
             os.close(fd)
             continue
         os.close(fd)
@@ -554,7 +573,8 @@ def _enum_webcams_linux() -> list[tuple[str, str]]:
         effective = device_caps if (capabilities & V4L2_CAP_DEVICE_CAPS) else capabilities
 
         if not (effective & V4L2_CAP_VIDEO_CAPTURE):
-            continue  # metadata, output, or non-capture node
+            _l(f"{dev_path}: no VIDEO_CAPTURE capability, skipping")
+            continue
 
         card = bytes(buf[16:48]).rstrip(b"\x00").decode("utf-8", errors="replace").strip()
         if not card:
@@ -562,9 +582,11 @@ def _enum_webcams_linux() -> list[tuple[str, str]]:
 
         # Collapse multiple nodes of the same physical camera.
         if card in seen_cards:
+            _l(f"{dev_path}: duplicate card {card!r}, skipping")
             continue
         seen_cards.add(card)
 
+        _l(f"{dev_path}: card={card!r}")
         results.append((card, dev_path))
 
     return results

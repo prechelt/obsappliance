@@ -1,6 +1,7 @@
 """OBS Studio process lifecycle and websocket control."""
 
 import configparser
+import datetime
 import json
 import logging
 import os
@@ -8,6 +9,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import IO
 
 import obsws_python as obsws
 
@@ -86,6 +88,14 @@ class OBSController:
         self._platform = "linux" if sys.platform.startswith("linux") else sys.platform
         # Detected at runtime after OBS connects; None until then.
         self._linux_monitor_kind: tuple[str, str | None] | None = None
+        self._logfh: IO[str] | None = None
+
+    def _log(self, msg: str) -> None:
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        line = f"[{ts}] {msg}\n"
+        if self._logfh:
+            self._logfh.write(line)
+            self._logfh.flush()
 
     # ── public helpers ────────────────────────────────────────────────
 
@@ -94,7 +104,7 @@ class OBSController:
         if self.ws is None:
             return False
         if self._process is not None and self._process.poll() is not None:
-            # OBS process exited (e.g. user closed the window); clear stale state.
+            self._log(f"OBS process gone (code {self._process.poll()}), clearing state")
             self.ws = None
             self._process = None
             self._linux_monitor_kind = None
@@ -107,6 +117,12 @@ class OBSController:
         """Start OBS (if needed) and connect the websocket."""
         if self.ws is not None:
             return
+        self._logfh = open("obsapp-debug.log", "w", encoding="utf-8")  # noqa: SIM115
+        self._log(f"OBSapp starting  platform={self._platform}")
+        self._log(f"WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY', '(not set)')}")
+        self._log(f"DISPLAY={os.environ.get('DISPLAY', '(not set)')}")
+        self._log(f"XDG_CONFIG_HOME={os.environ.get('XDG_CONFIG_HOME', '(not set)')}")
+        self._log(f"obs_exe={self._obs_exe!r}")
         # A previous start() call may have launched an OBS process that we
         # never managed to connect to (e.g. it timed out while OBS was showing
         # its first-run wizard).  Terminate that orphan before starting a fresh
@@ -128,6 +144,7 @@ class OBSController:
             "--collection", "OBSapp",
             "--profile", "OBSapp",
         ]
+        self._log(f"launching OBS: {obs_args}")
         # OBS does not support a --profile-path flag on any platform; it always
         # reads config from its standard OS location (%APPDATA%\obs-studio on
         # Windows, XDG / Library on Linux/macOS).  We therefore write our
@@ -140,8 +157,10 @@ class OBSController:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        self._log(f"OBS process PID={self._process.pid}")
         for _ in range(30):
             if self._process.poll() is not None:
+                self._log(f"OBS exited unexpectedly (code {self._process.returncode})")
                 raise ConnectionError(
                     f"OBS process exited unexpectedly (code {self._process.returncode})"
                 )
@@ -149,6 +168,12 @@ class OBSController:
                 self.ws = obsws.ReqClient(
                     host="localhost", port=_WS_PORT, password="", timeout=3,
                 )
+                self._log("connected to OBS WebSocket")
+                try:
+                    v = self.ws.get_version()
+                    self._log(f"OBS version={v.obs_version}  websocket={v.obs_web_socket_version}")
+                except Exception:
+                    pass
                 return
             except Exception:
                 time.sleep(1)
@@ -221,38 +246,50 @@ class OBSController:
         """Return [(display_name, value, width, height), ...] using native OS APIs."""
         try:
             if self._platform == "win32":
-                return _enum_monitors_win32()
-            if self._platform == "darwin":
-                return _enum_monitors_darwin()
-            return _enum_monitors_linux()
+                result = _enum_monitors_win32()
+            elif self._platform == "darwin":
+                result = _enum_monitors_darwin()
+            else:
+                result = _enum_monitors_linux(log=self._log)
         except Exception as exc:
+            self._log(f"monitor enumeration error: {exc}")
             print(f"Monitor enumeration failed: {exc}")
             return []
+        self._log(f"monitors ({len(result)}): {[r[0] for r in result]}")
+        return result
 
     def get_microphones(self) -> list[tuple[str, str]]:
         """Return [(friendly_name, device_id), ...] using native OS APIs."""
         try:
             if self._platform == "win32":
-                return _enum_mics_win32()
-            if self._platform == "darwin":
-                return _enum_mics_darwin()
-            return _enum_mics_linux()
+                result = _enum_mics_win32()
+            elif self._platform == "darwin":
+                result = _enum_mics_darwin()
+            else:
+                result = _enum_mics_linux(log=self._log)
         except Exception as exc:
+            self._log(f"microphone enumeration error: {exc}")
             print(f"Microphone enumeration failed: {exc}")
             return []
+        self._log(f"microphones ({len(result)}): {[r[0] for r in result]}")
+        return result
 
     def get_webcams(self) -> list[tuple[str, str]]:
         """Return [(friendly_name, device_id), ...] using native OS APIs."""
         try:
             if self._platform == "win32":
-                return _enum_webcams_win32()
-            if self._platform == "linux":
-                return _enum_webcams_linux()
-            # macOS webcam enumeration not yet implemented.
-            return []
+                result = _enum_webcams_win32()
+            elif self._platform == "linux":
+                result = _enum_webcams_linux(log=self._log)
+            else:
+                # macOS webcam enumeration not yet implemented.
+                result = []
         except Exception as exc:
+            self._log(f"webcam enumeration error: {exc}")
             print(f"Webcam enumeration failed: {exc}")
             return []
+        self._log(f"webcams ({len(result)}): {[r[0] for r in result]}")
+        return result
 
     # ── recording control ─────────────────────────────────────────────
 
@@ -269,16 +306,21 @@ class OBSController:
             assert self.ws is not None
             available = set(self.ws.get_input_kind_list(unversioned=True).input_kinds)
             on_wayland = bool(os.environ.get("WAYLAND_DISPLAY"))
+            self._log(f"input kinds available: {sorted(available)}")
+            self._log(f"on_wayland={on_wayland}")
             for kind, prop in _LINUX_MONITOR_CANDIDATES:
                 if kind not in available:
                     continue
                 if on_wayland and kind == "xshm_input":
-                    continue  # registered but non-functional under Wayland
+                    self._log(f"skipping xshm_input (Wayland)")
+                    continue
                 self._linux_monitor_kind = (kind, prop)
+                self._log(f"selected monitor kind: {kind!r}  prop={prop!r}")
                 return self._linux_monitor_kind
-        except Exception:
-            pass
+        except Exception as exc:
+            self._log(f"_get_linux_monitor_kind error: {exc}")
         self._linux_monitor_kind = _LINUX_MONITOR_CANDIDATES[0]  # X11 fallback
+        self._log(f"falling back to: {self._linux_monitor_kind}")
         return self._linux_monitor_kind
 
     def setup_recording(
@@ -299,6 +341,8 @@ class OBSController:
         webcam source is created with OBS default positioning (full-canvas).
         """
         assert self.ws is not None
+        self._log(f"setup_recording: monitor={monitor_value!r} resolution={monitor_resolution} "
+                  f"mic={mic_value!r} webcam={webcam_value!r} output_dir={output_dir!r}")
         # Update the canvas/output resolution in the profile to match the
         # selected monitor.  Without this, a monitor with a different resolution
         # than the profile default gets cropped (if larger) or pillar-/letterboxed
@@ -312,17 +356,21 @@ class OBSController:
             name="FilePath",
             value=output_dir,
         )
+        self._log("set_profile_parameter FilePath: OK")
         # Ensure our scene exists and is active.
         self._create_scene_if_missing(_SCENE_NAME)
         self.ws.set_current_program_scene(_SCENE_NAME)
         # Remove old sources so we start clean.
         removed_any = False
+        removed_names = []
         for name in ("OBSapp_Monitor", "OBSapp_Mic", "OBSapp_Webcam"):
             try:
                 self.ws.remove_input(name)
                 removed_any = True
+                removed_names.append(name)
             except Exception:
                 pass
+        self._log(f"removed sources: {removed_names or 'none'}")
         # OBS processes source removal asynchronously.  If any source existed
         # and was just removed, wait briefly so OBS fully disposes of the
         # capture device before we try to re-create a source with the same name.
@@ -339,24 +387,30 @@ class OBSController:
         # On Wayland (PipeWire sources), there is no screen-ID property; the
         # user selects the screen via the XDG portal dialog that OBS opens.
         mon_settings = {mon_prop: monitor_value} if mon_prop is not None else {}
+        self._log(f"create_input monitor: kind={mon_kind!r} settings={mon_settings!r}")
         self.ws.create_input(
             _SCENE_NAME, "OBSapp_Monitor", mon_kind, mon_settings, True,
         )
+        self._log("create_input monitor: OK")
         # Add microphone (if selected).
         if mic_value:
             mic_kind, mic_prop = types["mic"]
+            self._log(f"create_input mic: kind={mic_kind!r} {mic_prop}={mic_value!r}")
             self.ws.create_input(
                 _SCENE_NAME, "OBSapp_Mic", mic_kind,
                 {mic_prop: mic_value}, True,
             )
+            self._log("create_input mic: OK")
             self._add_mic_filters("OBSapp_Mic")
         # Add webcam (if selected).
         if webcam_value:
             cam_kind, cam_prop = types["webcam"]
+            self._log(f"create_input webcam: kind={cam_kind!r} {cam_prop}={webcam_value!r}")
             result = self.ws.create_input(
                 _SCENE_NAME, "OBSapp_Webcam", cam_kind,
                 {cam_prop: webcam_value}, True,
             )
+            self._log("create_input webcam: OK")
             if webcam_transform is not None:
                 item_id = result.scene_item_id
                 x, y, w, h = webcam_transform
@@ -379,24 +433,32 @@ class OBSController:
         # Give OBS a moment to open the capture devices before recording starts.
         # Without this, the monitor source may produce a black frame and webcam
         # hardware may not finish initialising in time.
+        self._log("setup_recording: sleeping 2s for device init")
         time.sleep(2)
+        self._log("setup_recording: done")
 
     def start_recording(self) -> None:
         assert self.ws is not None
+        self._log("start_record")
         self.ws.start_record()
+        self._log("start_record: OK")
 
     def stop_recording(self) -> str:
         """Stop recording.  Returns the path of the recorded file."""
         assert self.ws is not None
+        self._log("stop_record")
         resp = self.ws.stop_record()
+        self._log(f"stop_record: output_path={resp.output_path!r}")
         return resp.output_path
 
     def pause_recording(self) -> None:
         assert self.ws is not None
+        self._log("pause_record")
         self.ws.pause_record()
 
     def resume_recording(self) -> None:
         assert self.ws is not None
+        self._log("resume_record")
         self.ws.resume_record()
 
     # ── private helpers ───────────────────────────────────────────────
@@ -422,6 +484,7 @@ class OBSController:
     def _ensure_obs_config(self) -> None:
         """Create/update OBS config files before launching OBS."""
         cfg = self._obs_system_config_dir()
+        self._log(f"OBS system config dir: {cfg}")
 
         # ── websocket: enabled, no authentication ──
         # Always overwrite these fields so a pre-existing user config with
@@ -442,6 +505,7 @@ class OBSController:
             "auth_required": False,
         })
         ws_cfg.write_text(json.dumps(existing, indent=2))
+        self._log(f"websocket config written: {ws_cfg}")
 
         # ── profile: low-CPU recording preset ──
         prof = cfg / "basic" / "profiles" / "OBSapp"
@@ -465,6 +529,9 @@ class OBSController:
                 "RecFormat=mp4\n"
                 "RecEncoder=x264\n"
             )
+            self._log(f"basic.ini created: {ini}")
+        else:
+            self._log(f"basic.ini already exists: {ini}")
 
         # ── minimal scene collection (OBS 30+ format) ──
         # OBS 30+ stores scenes inside the top-level "sources" array as items
@@ -474,6 +541,7 @@ class OBSController:
         scenes_dir.mkdir(parents=True, exist_ok=True)
         sc = scenes_dir / "OBSapp.json"
         if not sc.exists():
+            self._log(f"scene collection creating: {sc}")
             import uuid as _uuid
             sc.write_text(json.dumps({
                 "name": "OBSapp",
@@ -511,6 +579,9 @@ class OBSController:
                 "transition_duration": 300,
                 "preview_locked": False,
             }, indent=2))
+            self._log(f"scene collection created: {sc}")
+        else:
+            self._log(f"scene collection already exists: {sc}")
 
         # ── global.ini: suppress first-run wizard, enable websocket ──
         # FirstRun=false prevents OBS from showing its Auto-Configuration Wizard
@@ -531,7 +602,9 @@ class OBSController:
                 "ServerPassword=\n"
                 "AlertsEnabled=false\n"
             )
+            self._log(f"global.ini created: {gi}")
         else:
+            self._log(f"global.ini already exists: {gi}")
             # Ensure FirstRun is false even if a previous OBS launch set it.
             parser = configparser.RawConfigParser()
             parser.optionxform = str  # preserve key case
@@ -542,6 +615,9 @@ class OBSController:
                 parser.set("General", "FirstRun", "false")
                 with gi.open("w") as fh:
                     parser.write(fh)
+                self._log("global.ini: patched FirstRun=false")
+            else:
+                self._log("global.ini: FirstRun already false")
 
     def _create_scene_if_missing(self, name: str) -> None:
         """Create an OBS scene, silently ignoring 'already exists' (code 601)."""
@@ -578,9 +654,9 @@ class OBSController:
                     "knee_width":   MIC_EXPANDER_KNEE_DB,
                 },
             )
-        except Exception:
-            pass  # non-fatal: unprocessed audio is better than no audio
-
+            self._log("mic expander filter: OK")
+        except Exception as exc:
+            self._log(f"mic expander filter failed (non-fatal): {exc}")
 
         try:
             self.ws.create_source_filter(
@@ -596,8 +672,9 @@ class OBSController:
                     "sidechain_source": "",
                 },
             )
-        except Exception:
-            pass  # non-fatal
+            self._log("mic compressor filter: OK")
+        except Exception as exc:
+            self._log(f"mic compressor filter failed (non-fatal): {exc}")
 
     def _set_profile_resolution(self, width: int, height: int) -> None:
         """Write canvas and output resolution into the OBSapp profile basic.ini.
@@ -609,6 +686,7 @@ class OBSController:
         assert self.ws is not None
         # Persist to disk so next launch also uses the right resolution.
         prof_ini = self._obs_system_config_dir() / "basic" / "profiles" / "OBSapp" / "basic.ini"
+        self._log(f"set_profile_resolution: {width}x{height}  ini={prof_ini}")
         cfg = configparser.RawConfigParser(strict=False)
         cfg.optionxform = str  # preserve key case (OBS is case-sensitive)
         if prof_ini.exists():
@@ -631,8 +709,10 @@ class OBSController:
             fps_den = int(cfg.get("Video", "FPSDen"))
         except (configparser.NoOptionError, ValueError):
             fps_den = 1
+        self._log(f"fps from ini: {fps_num}/{fps_den}")
         with prof_ini.open("w", encoding="utf-8-sig") as fh:
             cfg.write(fh)
+        self._log("profile ini written")
         # Push to the running OBS session via websocket so we don't need a restart.
         self.ws.set_video_settings(
             numerator=fps_num,
@@ -642,3 +722,4 @@ class OBSController:
             out_width=width,
             out_height=height,
         )
+        self._log("set_video_settings: OK")
