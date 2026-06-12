@@ -4,9 +4,11 @@ All functions return a list of (display_name, value) tuples where *value* is
 what gets written into the OBS source settings dict for the relevant property.
 """
 
+import glob
 import os
 import re
 import subprocess
+from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
@@ -441,19 +443,34 @@ def _enum_webcams_win32() -> list[tuple[str, str]]:
 # ---------------------------------------------------------------------------
 
 def _enum_monitors_linux() -> list[tuple[str, str, int, int]]:
-    """Return monitor list on Linux using xrandr output."""
+    """Return monitor list on Linux, using xrandr on X11 or DRM sysfs on Wayland."""
     try:
         out = subprocess.check_output(
             ["xrandr", "--listmonitors"], text=True, stderr=subprocess.DEVNULL,
         )
     except Exception:
-        return []
+        out = ""
     results = []
     for line in out.splitlines():
         m = re.match(r"\s*(\d+):\s+[+*]?(\S+)\s+(\d+)/\d+x(\d+)/\d+\+\d+\+\d+", line)
         if m:
             idx, name, w, h = m.group(1), m.group(2), int(m.group(3)), int(m.group(4))
             results.append((f"{name} ({w}×{h})", idx, w, h))
+    if results:
+        return results
+    # xrandr returned nothing — likely pure Wayland.  Fall back to DRM sysfs.
+    # The value (connector name) is not passed to OBS on Wayland; resolution is.
+    for modes_path in sorted(glob.glob("/sys/class/drm/card*-*/modes")):
+        status_path = modes_path.replace("/modes", "/status")
+        try:
+            if Path(status_path).read_text().strip() != "connected":
+                continue
+            first_mode = Path(modes_path).read_text().strip().splitlines()[0]
+            w, h = map(int, first_mode.split("x"))
+            connector = Path(modes_path).parent.name.split("-", 1)[1]
+            results.append((f"{connector} ({w}×{h})", connector, w, h))
+        except Exception:
+            continue
     return results
 
 
